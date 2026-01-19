@@ -1,220 +1,19 @@
 import discord
 import os
 import re
-import json
 import asyncio
 import datetime
-import subprocess
-import aiohttp
 import glob
-from openai import OpenAI
-from playwright.async_api import async_playwright
-import trafilatura
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+import aiohttp
 
-# [CONFIG] 환경 변수 로드
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-INPUT_CHANNEL_ID = int(os.getenv("INPUT_CHANNEL_ID"))
-OUTPUT_CHANNEL_ID = int(os.getenv("OUTPUT_CHANNEL_ID"))
-MANAGEMENT_CHANNEL_ID = int(os.getenv("MANAGEMENT_CHANNEL_ID"))
-LLM_HOST = os.getenv("LLM_HOST", "http://host.docker.internal:1234/v1")
-SAVE_DIR = "/app/data"
+from src.config import (
+    DISCORD_TOKEN, INPUT_CHANNEL_ID, OUTPUT_CHANNEL_ID, 
+    MANAGEMENT_CHANNEL_ID, SAVE_DIR
+)
+from src.services.drive_handler import DriveUploader
+from src.services.content_extractor import ContentExtractor
+from src.services.ai_handler import AIAgent
 
-# [CLASS] 구글 드라이브 업로더
-class DriveUploader:
-    def __init__(self):
-        self.drive = None
-        self.folder_id = None
-        self.folder_name = "NotebookLM_Source"
-        self._login()
-
-    def _login(self):
-        try:
-            gauth = GoogleAuth()
-            # Docker 컨테이너 내 경로 지정
-            gauth.LoadCredentialsFile("/app/mycreds.txt")
-            if gauth.credentials is None:
-                print("[Drive] ⚠️ 인증 파일(mycreds.txt)이 없습니다. 드라이브 기능을 비활성화합니다.")
-                return
-            
-            if gauth.access_token_expired:
-                gauth.Refresh()
-            else:
-                gauth.Authorize()
-            
-            self.drive = GoogleDrive(gauth)
-            print("[Drive] ✅ Google Drive 로그인 성공!")
-            self._get_or_create_folder()
-        except Exception as e:
-            print(f"[Drive] ❌ 로그인 실패: {e}")
-
-    def _get_or_create_folder(self):
-        if not self.drive: return
-        try:
-            file_list = self.drive.ListFile({'q': f"title='{self.folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"}).GetList()
-            if file_list:
-                self.folder_id = file_list[0]['id']
-                print(f"[Drive] 폴더 연결됨: {self.folder_name} ({self.folder_id})")
-            else:
-                folder = self.drive.CreateFile({'title': self.folder_name, 'mimeType': 'application/vnd.google-apps.folder'})
-                folder.Upload()
-                self.folder_id = folder['id']
-                print(f"[Drive] 새 폴더 생성됨: {self.folder_name} ({self.folder_id})")
-        except Exception as e:
-            print(f"[Drive] 폴더 에러: {e}")
-
-    def upload(self, filepath, title):
-        if not self.drive or not self.folder_id: return False
-        try:
-            filename = os.path.basename(filepath)
-            file_drive = self.drive.CreateFile({
-                'title': filename,
-                'parents': [{'id': self.folder_id}]
-            })
-            file_drive.SetContentFile(filepath)
-            file_drive.Upload()
-            print(f"[Drive] 📤 업로드 성공: {filename}")
-            return True
-        except Exception as e:
-            print(f"[Drive] ❌ 업로드 실패: {e}")
-            return False
-
-# [CLASS] 콘텐츠 추출기
-class ContentExtractor:
-    @staticmethod
-    def normalize_url(url):
-        url = re.sub(r"(https?://)(fxfxtwitter|fxtwitter|vxtwitter|fixupx|twittpr)(\.com/)", r"\1x\3", url)
-        if "threads.com" in url or "threads.net" in url:
-            url = url.replace("threads.com", "threads.net").split("?")[0]
-        return url
-
-    @staticmethod
-    async def extract_dynamic_content(url):
-        print(f"[Playwright] Scraping: {url}")
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    viewport={"width": 1920, "height": 1080},
-                    locale="ko-KR"
-                )
-                page = await context.new_page()
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    try: await page.wait_for_load_state("networkidle", timeout=5000)
-                    except: pass
-                    
-                    content = await page.content()
-                    extracted_text = trafilatura.extract(content, include_comments=False)
-                    
-                    if not extracted_text:
-                        desc = await page.get_attribute('meta[property="og:description"]', 'content')
-                        title = await page.title()
-                        if desc: extracted_text = f"제목: {title}\n내용: {desc}"
-                    return extracted_text
-                finally:
-                    await browser.close()
-        except Exception as e:
-            print(f"[Playwright Error] {e}")
-            return None
-
-    @staticmethod
-    def _extract_youtube_sync(url):
-        print(f"[YouTube] Processing: {url}")
-        try:
-            video_id = None
-            if "v=" in url: video_id = url.split("v=")[1].split("&")[0]
-            elif "youtu.be" in url: video_id = url.split("/")[-1].split("?")[0]
-            if not video_id: return {"error": "Invalid YouTube URL"}
-
-            cmd = ["yt-dlp", "--write-auto-sub", "--write-sub", "--sub-lang", "ko,en", "--skip-download", "--output", f"/app/data/%(id)s", url]
-            subprocess.run(cmd, check=True, capture_output=True)
-            
-            target_base = f"/app/data/{video_id}"
-            content = ""
-            for lang in ['.ko.vtt', '.en.vtt']:
-                path = target_base + lang
-                if os.path.exists(path):
-                    with open(path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                        text_lines = [line.strip() for line in lines if '-->' not in line and line.strip() != 'WEBVTT' and line.strip()]
-                        content = " ".join(dict.fromkeys(text_lines))
-                    os.remove(path)
-                    break
-            if content: return {"type": "YouTube", "content": content[:7000]}
-            return {"error": "자막을 찾을 수 없습니다."}
-        except Exception as e:
-            return {"error": f"YouTube Error: {str(e)}"}
-
-    @staticmethod
-    async def extract(url):
-        url = ContentExtractor.normalize_url(url)
-        print(f"[Extractor] Normalized URL: {url}")
-        if "youtube.com" in url or "youtu.be" in url:
-            return await asyncio.to_thread(ContentExtractor._extract_youtube_sync, url)
-        content = await ContentExtractor.extract_dynamic_content(url)
-        if not content or len(content.strip()) < 50:
-             return {"error": "본문 추출 실패"}
-        source_type = "X/Threads" if "x.com" in url or "threads.net" in url else "Web"
-        return {"type": source_type, "content": content[:7000]}
-
-# [CLASS] AI 에이전트
-class AIAgent:
-    def __init__(self):
-        print(f"[AI] Connecting to LLM at {LLM_HOST}")
-        self.client = OpenAI(base_url=LLM_HOST, api_key="lm-studio")
-
-    def analyze(self, text):
-        if not text or len(text) < 50: return None
-        system_prompt = """
-You are a technical content summarizer.
-Analyze the provided text and output ONLY valid JSON.
-Format: {"title":"Korean Title","summary":"3 bullet points in Korean","category":"Tech/AI/Eco","tags":["tag1"],"difficulty":"Easy/Med/Hard"}
-"""
-        try:
-            safe_text = text[:7000]
-            response = self.client.chat.completions.create(
-                model="local-model",
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Text:\n{safe_text}"}],
-                temperature=0.1,
-            )
-            content = response.choices[0].message.content
-            clean_json = content.replace("```json", "").replace("```", "").strip()
-            start, end = clean_json.find('{'), clean_json.rfind('}') + 1
-            if start != -1 and end != -1: clean_json = clean_json[start:end]
-            return json.loads(clean_json)
-        except Exception as e:
-            print(f"[AI Error] {e}")
-            return None
-
-    def deep_dive(self, text):
-        if not text or len(text) < 50: return None
-        system_prompt = """
-You are a Senior Technical Researcher. 
-Conduct a comprehensive Deep Dive analysis of the provided text.
-Output MUST be in Korean Markdown format.
-Structure:
-# [Title]
-## 1. 🔍 핵심 논거 및 인사이트
-## 2. ⚙️ 기술적 심층 분석
-## 3. ⚖️ 비판적 시각
-## 4. 🚀 실무 적용 포인트
-"""
-        try:
-            safe_text = text[:12000]
-            response = self.client.chat.completions.create(
-                model="local-model",
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Analyze:\n{safe_text}"}],
-                temperature=0.3,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"[AI DeepDive Error] {e}")
-            return None
-
-# [CLASS] 디스코드 봇 메인
 class KnowledgeBot(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
@@ -257,29 +56,21 @@ class KnowledgeBot(discord.Client):
         elif not initial:
             await channel.send("⚠️ Ngrok 터널을 찾을 수 없습니다.")
 
-    # ------------------------------------------------------------------
-    # [EVENT] 심층 분석 (이모지 반응)
-    # ------------------------------------------------------------------
     async def on_raw_reaction_add(self, payload):
         if payload.user_id == self.user.id: return
         
-        print(f"[Event] Reaction: {payload.emoji}")
         target_emojis = ["🕵️‍♂️", "🕵️", "🕵", "🔍"]
-        
         if str(payload.emoji) in target_emojis:
             channel = self.get_channel(payload.channel_id)
             if not channel: return
             try: message = await channel.fetch_message(payload.message_id)
             except: return
 
-            print(f"[DeepDive] 심층 분석 시작")
             url_match = re.search(r'(https?://\S+)', message.content)
             target_url = url_match.group(0) if url_match else (message.embeds[0].url if message.embeds else None)
-
             if not target_url: return
 
             await channel.send(f"🕵️‍♂️ **Deep Dive 시작...** (드라이브 업로드 포함)")
-            
             try:
                 data = await self.extractor.extract(target_url)
                 if "error" in data:
@@ -301,7 +92,6 @@ class KnowledgeBot(discord.Client):
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(f"{deep_analysis}\n\n---\n**Source:** {target_url}")
 
-                # Drive Upload
                 uploaded = self.uploader.upload(filepath, title)
                 drive_msg = "📂 **Drive 업로드 완료**" if uploaded else "⚠️ **Drive 실패**"
 
@@ -310,18 +100,13 @@ class KnowledgeBot(discord.Client):
                     await channel.send(f"✅ **분석 완료** ({drive_msg})\n파일명: `{filename}`\n\n{preview}")
                 else:
                     await channel.send(f"✅ **분석 완료** ({drive_msg})\n\n{deep_analysis}")
-
             except Exception as e:
                 print(f"Deep Dive Error: {e}")
                 await channel.send(f"❌ 오류: {e}")
 
-    # ------------------------------------------------------------------
-    # [EVENT] 메시지 처리 핸들러 (명령어 및 링크 수집)
-    # ------------------------------------------------------------------
     async def on_message(self, message):
         if message.author == self.user: return
 
-        # 1. 관리 채널 명령어
         if message.channel.id == MANAGEMENT_CHANNEL_ID:
             if "!url" in message.content or "주소" in message.content:
                 await self.send_ngrok_url(message.channel.id)
@@ -331,13 +116,9 @@ class KnowledgeBot(discord.Client):
                 await self._handle_ask_question(message)
             return
 
-        # 2. 링크 입력 채널
         if message.channel.id == INPUT_CHANNEL_ID:
             await self._handle_link_submission(message)
 
-    # ------------------------------------------------------------------
-    # [HELPER] 기능별 로직 분리 (가독성 및 유지보수용)
-    # ------------------------------------------------------------------
     async def _handle_weekly_report(self, message):
         await message.channel.send("📅 **주간 리포트** 생성 중...")
         report_files = []
@@ -345,7 +126,6 @@ class KnowledgeBot(discord.Client):
         files = glob.glob(os.path.join(SAVE_DIR, "*.md"))
         
         for f in files:
-            # DeepDive 파일은 중복 방지를 위해 제외 (선택 사항)
             if "[DeepDive]" in f: continue
             try:
                 file_date = datetime.datetime.strptime(os.path.basename(f)[:10], "%Y-%m-%d")
@@ -369,12 +149,10 @@ class KnowledgeBot(discord.Client):
             ], temperature=0.3)
             report = resp.choices[0].message.content
             
-            # 파일 저장
             filename = f"Weekly_Report_{today.strftime('%Y%m%d')}.md"
             filepath = os.path.join(SAVE_DIR, filename)
             with open(filepath, "w", encoding='utf-8') as f: f.write(report)
             
-            # Drive Upload
             self.uploader.upload(filepath, "Weekly Report")
             
             if len(report) > 1900:
@@ -436,7 +214,6 @@ class KnowledgeBot(discord.Client):
 
             clean_url = self.extractor.normalize_url(target_url)
             await self._save_and_upload(analysis, clean_url, data['type'], message)
-            
         except Exception as e:
             print(f"Link Error: {e}")
             await message.channel.send(f"Error: {e}")
@@ -454,7 +231,6 @@ class KnowledgeBot(discord.Client):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
 
-        # [DRIVE] 업로드
         self.uploader.upload(filepath, data.get('title'))
 
         await message.remove_reaction("👀", self.user)
@@ -466,7 +242,3 @@ class KnowledgeBot(discord.Client):
             embed.add_field(name="요약", value=summary, inline=False)
             embed.set_footer(text="Local LLM • Drive Uploaded")
             await out_ch.send(embed=embed)
-
-if __name__ == "__main__":
-    bot = KnowledgeBot()
-    bot.run(DISCORD_TOKEN)

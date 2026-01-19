@@ -17,8 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium
 
 # 소스코드 및 쿠키 파일 복사
-COPY bot.py .
+COPY main.py .
+COPY src/ ./src/
 # 쿠키 파일이 없을 경우를 대비해 빈 파일 생성 (선택 사항)
 # RUN touch cookies.txt
 
-CMD ["python", "bot.py"]
+CMD ["python", "main.py"]
