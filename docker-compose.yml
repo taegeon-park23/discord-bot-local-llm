@@ -1,0 +1,49 @@
+services:
+  # 1. 디스코드 봇 (지식 수집꾼)
+  discord-bot:
+    build: .
+    container_name: knowledge_bot
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # 호스트의 LM Studio 접속용
+    volumes:
+      - ./data:/app/data # 데이터 저장소 연결
+      - ./client_secrets.json:/app/client_secrets.json
+      - ./mycreds.txt:/app/mycreds.txt
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # 2. 옵시디언 풀 버전 (뷰어 + 에디터)
+  obsidian:
+    image: lscr.io/linuxserver/obsidian:latest
+    container_name: obsidian
+    # [중요] 앱이 실행되려면 이 권한이 필수입니다.
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Seoul
+    volumes:
+      # 봇 데이터 연결
+      - ./data:/vaults/my-knowledge
+      # 설정 저장소
+      - ./obsidian-config:/config
+    ports:
+      - "3000:3000"
+    # [핵심] VNC 화면이 깨지거나 흰 화면이 뜨지 않도록 메모리 확보
+    shm_size: "2gb"
+    restart: unless-stopped
+
+  # 3. 외부 접속 터널 (ngrok)
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok_tunnel
+    command: "http obsidian:3000 --host-header=rewrite"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_TOKEN}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - obsidian
+    restart: unless-stopped

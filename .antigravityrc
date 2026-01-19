@@ -1,0 +1,24 @@
+# Antigravity 보안 설정 파일 (.antigravityrc)
+
+[TerminalPolicy]
+# AI가 명령어 실행 시 반드시 사용자 승인 필요
+mode = AskMe
+allow_list = ["ls", "pwd", "cat", "git status", "git pull", "git add", "git commit", "git push"]
+
+[BrowserPolicy]
+# AI가 접속할 수 있는 도메인 화이트리스트
+allow_list = ["localhost", "github.com", "google.com", "youtube.com", "twitter.com", "threads.net", "x.com", "openai.com", "lmstudio.com", "trafilatura.com", "playwright.com", "pydrive2.com"]
+
+[FileAccess]
+# 민감한 파일/디렉토리 접근 차단
+deny_list = [
+    ".env",
+    "cookies.txt",
+    "mycreds.txt",
+    "client_secrets.json",
+    "/etc/passwd",
+]
+
+[WorkspaceTrust]
+# 기본적으로 신뢰하지 않음 (Restricted Mode)
+default_trust = false

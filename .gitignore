@@ -1,0 +1,13 @@
+cookies.txt
+mycreds.txt
+client_secrets.json
+.env
+obsidian-config
+data
+
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.vscode/
