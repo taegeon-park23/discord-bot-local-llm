@@ -13,6 +13,7 @@ from src.config import (
 from src.services.drive_handler import DriveUploader
 from src.services.content_extractor import ContentExtractor
 from src.services.ai_handler import AIAgent
+from src.services.llm_queue import LLMQueue, LLMJob
 
 class KnowledgeBot(discord.Client):
     def __init__(self):
@@ -23,10 +24,13 @@ class KnowledgeBot(discord.Client):
         self.extractor = ContentExtractor()
         self.ai = AIAgent()
         self.uploader = DriveUploader()
+        self.queue = LLMQueue(self)
         if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
 
     async def on_ready(self):
         print(f'Logged in as {self.user}')
+        # Start LLM Queue Worker
+        self.loop.create_task(self.queue.worker())
         await self.send_ngrok_url(MANAGEMENT_CHANNEL_ID, initial=True)
 
     async def get_ngrok_url(self):
@@ -70,36 +74,18 @@ class KnowledgeBot(discord.Client):
             target_url = url_match.group(0) if url_match else (message.embeds[0].url if message.embeds else None)
             if not target_url: return
 
-            await channel.send(f"🕵️‍♂️ **Deep Dive 시작...** (드라이브 업로드 포함)")
+            await channel.send(f"🕵️‍♂️ **Deep Dive 시작...** (드라이브 업로드 포함 / 큐 대기 가능)")
             try:
                 data = await self.extractor.extract(target_url)
                 if "error" in data:
                     await channel.send(f"⚠️ 추출 실패: {data['error']}")
                     return
 
-                deep_analysis = await asyncio.to_thread(self.ai.deep_dive, data['content'])
-                if not deep_analysis:
-                    await channel.send("❌ AI 분석 실패")
-                    return
-
-                date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-                title_match = re.search(r'^#\s+(.+)', deep_analysis)
-                title = title_match.group(1).strip() if title_match else "DeepDive"
-                safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
-                filename = f"{date_str}_[DeepDive]_{safe_title}.md"
-                filepath = os.path.join(SAVE_DIR, filename)
-                
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(f"{deep_analysis}\n\n---\n**Source:** {target_url}")
-
-                uploaded = self.uploader.upload(filepath, title)
-                drive_msg = "📂 **Drive 업로드 완료**" if uploaded else "⚠️ **Drive 실패**"
-
-                if len(deep_analysis) > 1900:
-                    preview = deep_analysis[:1000] + "\n\n...(중략)..."
-                    await channel.send(f"✅ **분석 완료** ({drive_msg})\n파일명: `{filename}`\n\n{preview}")
-                else:
-                    await channel.send(f"✅ **분석 완료** ({drive_msg})\n\n{deep_analysis}")
+                await self.queue.add_job(LLMJob(
+                    type='deep_dive',
+                    payload={'content': data['content'], 'url': target_url},
+                    context=message
+                ))
             except Exception as e:
                 print(f"Deep Dive Error: {e}")
                 await channel.send(f"❌ 오류: {e}")
@@ -141,26 +127,12 @@ class KnowledgeBot(discord.Client):
             await message.channel.send("⚠️ 최근 7일간 데이터가 없습니다.")
             return
 
-        context = "\n\n".join(report_files)
-        try:
-            resp = await asyncio.to_thread(self.ai.client.chat.completions.create, model="local-model", messages=[
-                {"role": "system", "content": "Summarize user's weekly tech learning trends in Korean. Group by topics."},
-                {"role": "user", "content": f"Articles:\n{context}"}
-            ], temperature=0.3)
-            report = resp.choices[0].message.content
-            
-            filename = f"Weekly_Report_{today.strftime('%Y%m%d')}.md"
-            filepath = os.path.join(SAVE_DIR, filename)
-            with open(filepath, "w", encoding='utf-8') as f: f.write(report)
-            
-            self.uploader.upload(filepath, "Weekly Report")
-            
-            if len(report) > 1900:
-                await message.channel.send(f"✅ **주간 리포트 완료!** (파일 및 드라이브 저장됨)")
-            else:
-                await message.channel.send(f"📊 **주간 트렌드**\n{report}")
-        except Exception as e:
-            await message.channel.send(f"❌ 생성 실패: {e}")
+        context_text = "\n\n".join(report_files)
+        await self.queue.add_job(LLMJob(
+            type='weekly',
+            payload={'context_text': context_text},
+            context=message
+        ))
 
     async def _handle_ask_question(self, message):
         query = message.content.replace("!ask", "").strip()
@@ -184,13 +156,11 @@ class KnowledgeBot(discord.Client):
             await message.remove_reaction("🤔", self.user)
             return
 
-        try:
-            resp = await asyncio.to_thread(self.ai.client.chat.completions.create, model="local-model", messages=[
-                {"role": "system", "content": "Answer the question based strictly on the provided Context. Answer in Korean."},
-                {"role": "user", "content": f"Context:\n{''.join(docs[:5])}\n\nQ: {query}"}
-            ], temperature=0.1)
-            await message.channel.send(f"💡 **답변:**\n{resp.choices[0].message.content}")
-        except: await message.channel.send("❌ 답변 실패")
+        await self.queue.add_job(LLMJob(
+            type='ask',
+            payload={'query': query, 'docs': docs},
+            context=message
+        ))
         await message.remove_reaction("🤔", self.user)
 
     async def _handle_link_submission(self, message):
@@ -206,14 +176,12 @@ class KnowledgeBot(discord.Client):
                 await message.remove_reaction("👀", self.user)
                 return
 
-            analysis = await asyncio.to_thread(self.ai.analyze, data['content'])
-            if not analysis:
-                await message.channel.send("❌ 분석 실패")
-                await message.remove_reaction("👀", self.user)
-                return
-
             clean_url = self.extractor.normalize_url(target_url)
-            await self._save_and_upload(analysis, clean_url, data['type'], message)
+            await self.queue.add_job(LLMJob(
+                type='summary',
+                payload={'content': data['content'], 'url': clean_url, 'source_type': data['type']},
+                context=message
+            ))
         except Exception as e:
             print(f"Link Error: {e}")
             await message.channel.send(f"Error: {e}")
