@@ -18,9 +18,17 @@ class LLMJob:
 
 class LLMQueue:
     def __init__(self, bot):
+        from src.config import LLM_CONCURRENCY
         self.bot = bot
         self.queue = asyncio.Queue()
         self.is_running = True
+        self.concurrency = LLM_CONCURRENCY
+
+    def start(self):
+        """설정된 동시성만큼 워커 스레드를 시작합니다."""
+        logger.info(f"[Queue] 워커 시작 (Concurrency: {self.concurrency})")
+        for i in range(self.concurrency):
+            self.bot.loop.create_task(self.worker(i + 1))
 
     async def add_job(self, job: LLMJob):
         await self.queue.put(job)
@@ -30,11 +38,11 @@ class LLMQueue:
             except: pass
         logger.info(f"[Queue] 작업 추가됨: {job.type}. 대기열 크기: {self.queue.qsize()}")
 
-    async def worker(self):
-        logger.info("[Queue] Worker 스레드 시작.")
+    async def worker(self, worker_id):
+        logger.info(f"[Queue] Worker-{worker_id} 시작.")
         while self.is_running:
             job = await self.queue.get()
-            logger.info(f"[Queue] 작업 처리 시작: {job.type}")
+            logger.info(f"[Queue][Worker-{worker_id}] 작업 처리 시작: {job.type}")
             
             try:
                 if job.context:
@@ -52,7 +60,7 @@ class LLMQueue:
                 elif job.type == 'weekly':
                     await self._process_weekly(job)
                 
-                logger.info(f"[Queue] 작업 완료: {job.type}")
+                logger.info(f"[Queue][Worker-{worker_id}] 작업 완료: {job.type}")
                 if job.context:
                     try:
                         await job.context.remove_reaction("🔄", self.bot.user)
@@ -60,7 +68,7 @@ class LLMQueue:
                     except: pass
 
             except Exception as e:
-                logger.error(f"[Queue] 작업 처리 중 오류 발생 ({job.type})", exc_info=True)
+                logger.error(f"[Queue][Worker-{worker_id}] 작업 처리 중 오류 발생 ({job.type})", exc_info=True)
                 if job.context:
                     try:
                         await job.context.remove_reaction("🔄", self.bot.user)

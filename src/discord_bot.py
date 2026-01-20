@@ -33,7 +33,7 @@ class KnowledgeBot(discord.Client):
     async def on_ready(self):
         logger.info(f'Logged in as {self.user}')
         # Start LLM Queue Worker
-        self.loop.create_task(self.queue.worker())
+        self.queue.start()
         await self.send_ngrok_url(MANAGEMENT_CHANNEL_ID, initial=True)
 
     async def get_ngrok_url(self):

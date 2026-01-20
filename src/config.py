@@ -11,4 +11,5 @@ SAVE_DIR = "/app/data"
 # Gemini API 설정
 GEMINI_API_KEYS = os.getenv("GEMINI_API_KEYS", "").split(",")
 GEMINI_API_KEYS = [k.strip() for k in GEMINI_API_KEYS if k.strip()]
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemma-3-27b-it")
+LLM_CONCURRENCY = int(os.getenv("LLM_CONCURRENCY", "3"))
