@@ -18,11 +18,15 @@ class LLMJob:
 
 class LLMQueue:
     def __init__(self, bot):
-        from src.config import LLM_CONCURRENCY
+        from src.config import LLM_CONCURRENCY, OUTPUT_CHANNEL_ID
         self.bot = bot
         self.queue = asyncio.Queue()
         self.is_running = True
         self.concurrency = LLM_CONCURRENCY
+        self.output_channel_id = OUTPUT_CHANNEL_ID
+
+    def qsize(self):
+        return self.queue.qsize()
 
     def start(self):
         """설정된 동시성만큼 워커 스레드를 시작합니다."""
@@ -118,12 +122,17 @@ class LLMQueue:
         uploaded = await asyncio.to_thread(self.bot.uploader.upload, filepath, title)
         drive_msg = "📂 **Drive 업로드 완료**" if uploaded else "⚠️ **Drive 실패**"
 
-        channel = job.context.channel
-        if len(deep_analysis) > 1900:
-            preview = deep_analysis[:1000] + "\n\n...(중략)..."
-            await channel.send(f"✅ **분석 완료** ({drive_msg})\n파일명: `{filename}`\n\n{preview}")
-        else:
-            await channel.send(f"✅ **분석 완료** ({drive_msg})\n\n{deep_analysis}")
+        # 결과 채널로 전송 (서머리 채널)
+        out_channel = self.bot.get_channel(self.output_channel_id)
+        if out_channel:
+            if len(deep_analysis) > 1900:
+                preview = deep_analysis[:1000] + "\n\n...(중략)..."
+                await out_channel.send(f"✅ **[Deep Dive] 분석 완료** ({drive_msg})\n파일명: `{filename}`\n원본: {payload['url']}\n\n{preview}")
+            else:
+                await out_channel.send(f"✅ **[Deep Dive] 분석 완료** ({drive_msg})\n원본: {payload['url']}\n\n{deep_analysis}")
+
+        # 요청 채널(링크 공유 채널)에는 완료 알림 및 큐 상태 전송
+        await job.context.channel.send(f"✅ **Deep Dive 완료** (서머리 채널 확인)\n📉 남은 작업: {self.queue.qsize()}개")
 
     async def _process_ask(self, job):
         # payload: {'query': str, 'docs': list}

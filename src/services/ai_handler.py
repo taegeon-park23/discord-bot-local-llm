@@ -68,9 +68,8 @@ You are a technical content summarizer.
 Analyze the provided text and output ONLY valid JSON.
 Format: {"title":"Korean Title","summary":"3 bullet points in Korean","category":"Tech/AI/Eco","tags":["tag1"],"difficulty":"Easy/Med/Hard"}
 """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Text:\n{text[:15000]}"} # Gemini 컨텍스트 활용 증가
+        messages = [            
+            {"role": "user", "content": f"{system_prompt}\n\n--- Input Text ---\n{text[:15000]}"}
         ]
 
         content = self._call_llm_with_failover(messages, temperature=0.1)

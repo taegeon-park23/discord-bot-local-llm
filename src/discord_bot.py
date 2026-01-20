@@ -218,5 +218,8 @@ class KnowledgeBot(discord.Client):
         if out_ch:
             embed = discord.Embed(title=data.get('title'), url=url, color=0x00ff00)
             embed.add_field(name="요약", value=summary, inline=False)
-            embed.set_footer(text="Local LLM • Drive Uploaded")
+            embed.set_footer(text=f"Local LLM • Drive Uploaded • Remaining: {self.queue.qsize()}")
             await out_ch.send(embed=embed)
+
+        # 요청 채널에 남은 작업 수 알림
+        await message.channel.send(f"📉 남은 작업: {self.queue.qsize()}개")
