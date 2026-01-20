@@ -54,6 +54,14 @@ class ContentExtractor:
             if not video_id: return {"error": "Invalid YouTube URL"}
 
             cmd = ["yt-dlp", "--write-auto-sub", "--write-sub", "--sub-lang", "ko,en", "--skip-download", "--output", f"/app/data/%(id)s", url]
+            
+            # 쿠키 파일이 있으면 사용 (429 에러 방지)
+            if os.path.exists("/app/cookies.txt"):
+                cmd.extend(["--cookies", "/app/cookies.txt"])
+            
+            # User-Agent 설정 (봇 탐지 우회)
+            cmd.extend(["--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"])
+
             subprocess.run(cmd, check=True, capture_output=True)
             
             target_base = f"/app/data/{video_id}"
@@ -69,6 +77,11 @@ class ContentExtractor:
                     break
             if content: return {"type": "YouTube", "content": content[:7000]}
             return {"error": "자막을 찾을 수 없습니다."}
+
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.decode() if e.stderr else str(e)
+            print(f"[YouTube Error] {error_msg}")
+            return {"error": f"YouTube download failed: {error_msg[:200]}..."}
         except Exception as e:
             return {"error": f"YouTube Error: {str(e)}"}
 

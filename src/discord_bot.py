@@ -5,6 +5,9 @@ import asyncio
 import datetime
 import glob
 import aiohttp
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 from src.config import (
     DISCORD_TOKEN, INPUT_CHANNEL_ID, OUTPUT_CHANNEL_ID, 
@@ -28,24 +31,24 @@ class KnowledgeBot(discord.Client):
         if not os.path.exists(SAVE_DIR): os.makedirs(SAVE_DIR)
 
     async def on_ready(self):
-        print(f'Logged in as {self.user}')
+        logger.info(f'Logged in as {self.user}')
         # Start LLM Queue Worker
         self.loop.create_task(self.queue.worker())
         await self.send_ngrok_url(MANAGEMENT_CHANNEL_ID, initial=True)
 
     async def get_ngrok_url(self):
         candidate_urls = ["http://ngrok_tunnel:4040/api/tunnels", "http://host.docker.internal:4040/api/tunnels"]
-        print(f"\n[Ngrok] URL 탐색 시작...")
+        logger.info("[Ngrok] URL 탐색 시작...")
         for url in candidate_urls:
             try:
-                print(f"[Ngrok] 접속 시도: {url}")
+                logger.info(f"[Ngrok] 접속 시도: {url}")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=2) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             if data.get('tunnels'):
                                 public_url = data['tunnels'][0]['public_url']
-                                print(f"[Ngrok] ✅ 성공: {public_url}")
+                                logger.info(f"[Ngrok] ✅ 성공: {public_url}")
                                 return public_url
             except: pass
         return None
@@ -78,6 +81,7 @@ class KnowledgeBot(discord.Client):
             try:
                 data = await self.extractor.extract(target_url)
                 if "error" in data:
+                    logger.warning(f"콘텐츠 추출 실패: {data['error']}")
                     await channel.send(f"⚠️ 추출 실패: {data['error']}")
                     return
 
@@ -87,7 +91,7 @@ class KnowledgeBot(discord.Client):
                     context=message
                 ))
             except Exception as e:
-                print(f"Deep Dive Error: {e}")
+                logger.error(f"Deep Dive 요청 처리 중 오류: {e}", exc_info=True)
                 await channel.send(f"❌ 오류: {e}")
 
     async def on_message(self, message):
@@ -106,6 +110,7 @@ class KnowledgeBot(discord.Client):
             await self._handle_link_submission(message)
 
     async def _handle_weekly_report(self, message):
+        logger.info("주간 리포트 요청 수신")
         await message.channel.send("📅 **주간 리포트** 생성 중...")
         report_files = []
         today = datetime.datetime.now()
@@ -140,6 +145,7 @@ class KnowledgeBot(discord.Client):
             await message.channel.send("사용법: `!ask <질문>`")
             return
         
+        logger.info(f"질문 요청 수신: {query}")
         await message.add_reaction("🤔")
         files = glob.glob(os.path.join(SAVE_DIR, "*.md"))
         docs = []
@@ -167,11 +173,14 @@ class KnowledgeBot(discord.Client):
         url_match = re.search(r'(https?://\S+)', message.content)
         if not url_match: return
         target_url = url_match.group(0)
+        
+        logger.info(f"링크 수신: {target_url}")
 
         await message.add_reaction("👀")
         try:
             data = await self.extractor.extract(target_url)
             if "error" in data:
+                logger.warning(f"링크 추출 실패: {data['error']}")
                 await message.channel.send(f"⚠️ {data['error']}")
                 await message.remove_reaction("👀", self.user)
                 return
@@ -183,7 +192,7 @@ class KnowledgeBot(discord.Client):
                 context=message
             ))
         except Exception as e:
-            print(f"Link Error: {e}")
+            logger.error(f"링크 처리 중 오류: {e}", exc_info=True)
             await message.channel.send(f"Error: {e}")
             await message.remove_reaction("👀", self.user)
 
@@ -199,7 +208,8 @@ class KnowledgeBot(discord.Client):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
 
-        self.uploader.upload(filepath, data.get('title'))
+        # Blocking I/O를 별도 스레드로 분리하여 이벤트 루프 차단 방지
+        await asyncio.to_thread(self.uploader.upload, filepath, data.get('title'))
 
         await message.remove_reaction("👀", self.user)
         await message.add_reaction("✅")

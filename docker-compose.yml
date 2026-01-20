@@ -7,6 +7,8 @@ services:
       - "host.docker.internal:host-gateway" # 호스트의 LM Studio 접속용
     volumes:
       - ./data:/app/data # 데이터 저장소 연결
+      - ./logs:/app/logs # 로그 저장소 연결
+      - ./cookies.txt:/app/cookies.txt # 유튜브 쿠키 (429 에러 해결용)
       - ./client_secrets.json:/app/client_secrets.json
       - ./mycreds.txt:/app/mycreds.txt
     env_file:

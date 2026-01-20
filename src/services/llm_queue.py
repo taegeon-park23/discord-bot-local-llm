@@ -5,6 +5,9 @@ import datetime
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 import discord
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 @dataclass
 class LLMJob:
@@ -25,13 +28,13 @@ class LLMQueue:
             try:
                 await job.context.add_reaction("⏳")
             except: pass
-        print(f"[Queue] Job added: {job.type}. Queue size: {self.queue.qsize()}")
+        logger.info(f"[Queue] 작업 추가됨: {job.type}. 대기열 크기: {self.queue.qsize()}")
 
     async def worker(self):
-        print("[Queue] Worker started.")
+        logger.info("[Queue] Worker 스레드 시작.")
         while self.is_running:
             job = await self.queue.get()
-            print(f"[Queue] Processing job: {job.type}")
+            logger.info(f"[Queue] 작업 처리 시작: {job.type}")
             
             try:
                 if job.context:
@@ -49,6 +52,7 @@ class LLMQueue:
                 elif job.type == 'weekly':
                     await self._process_weekly(job)
                 
+                logger.info(f"[Queue] 작업 완료: {job.type}")
                 if job.context:
                     try:
                         await job.context.remove_reaction("🔄", self.bot.user)
@@ -56,7 +60,7 @@ class LLMQueue:
                     except: pass
 
             except Exception as e:
-                print(f"[Queue] Error processing job {job.type}: {e}")
+                logger.error(f"[Queue] 작업 처리 중 오류 발생 ({job.type})", exc_info=True)
                 if job.context:
                     try:
                         await job.context.remove_reaction("🔄", self.bot.user)
@@ -65,16 +69,18 @@ class LLMQueue:
                     except: pass
             finally:
                 self.queue.task_done()
-                print(f"[Queue] Job finished: {job.type}")
 
     async def _process_summary(self, job):
         # payload: {'content': str, 'url': str, 'source_type': str}
         payload = job.payload
+        logger.info(f"[_process_summary] LLM 분석 요청 시작 (길이: {len(payload['content'])})")
         analysis = await asyncio.to_thread(self.bot.ai.analyze, payload['content'])
+        logger.info("[_process_summary] LLM 분석 완료")
+        
         if analysis:
             await self.bot._save_and_upload(analysis, payload['url'], payload['source_type'], job.context)
         else:
-            raise Exception("AI 분석 실패")
+            raise Exception("AI 분석 결과가 비어있습니다.")
 
     async def _process_deep_dive(self, job):
         # payload: {'content': str, 'url': str}
@@ -82,9 +88,12 @@ class LLMQueue:
         from src.config import SAVE_DIR
         
         payload = job.payload
+        logger.info(f"[_process_deep_dive] LLM 심층 분석 요청 시작 (길이: {len(payload['content'])})")
         deep_analysis = await asyncio.to_thread(self.bot.ai.deep_dive, payload['content'])
+        logger.info("[_process_deep_dive] LLM 심층 분석 완료")
+
         if not deep_analysis:
-            raise Exception("AI 분석 실패")
+            raise Exception("AI 심층 분석 결과가 비어있습니다.")
 
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
         title_match = re.search(r'^#\s+(.+)', deep_analysis)
@@ -95,8 +104,10 @@ class LLMQueue:
         
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"{deep_analysis}\n\n---\n**Source:** {payload['url']}")
+        logger.info(f"[_process_deep_dive] 파일 저장됨: {filename}")
 
-        uploaded = self.bot.uploader.upload(filepath, title)
+        # Blocking I/O
+        uploaded = await asyncio.to_thread(self.bot.uploader.upload, filepath, title)
         drive_msg = "📂 **Drive 업로드 완료**" if uploaded else "⚠️ **Drive 실패**"
 
         channel = job.context.channel
@@ -109,14 +120,16 @@ class LLMQueue:
     async def _process_ask(self, job):
         # payload: {'query': str, 'docs': list}
         payload = job.payload
+        logger.info(f"[_process_ask] 질문 처리 시작: {payload['query']}")
         try:
             resp = await asyncio.to_thread(self.bot.ai.client.chat.completions.create, model="local-model", messages=[
                 {"role": "system", "content": "Answer the question based strictly on the provided Context. Answer in Korean."},
                 {"role": "user", "content": f"Context:\n{''.join(payload['docs'][:5])}\n\nQ: {payload['query']}"}
             ], temperature=0.1)
+            logger.info("[_process_ask] 답변 생성 완료")
             await job.context.channel.send(f"💡 **답변:**\n{resp.choices[0].message.content}")
-        except:
-            raise Exception("AI 답변 생성 실패")
+        except Exception as e:
+            raise Exception(f"AI 답변 생성 실패: {e}")
 
     async def _process_weekly(self, job):
         # payload: {'context_text': str}
@@ -124,19 +137,21 @@ class LLMQueue:
         from src.config import SAVE_DIR
 
         payload = job.payload
+        logger.info("[_process_weekly] 주간 리포트 생성 시작")
         try:
             resp = await asyncio.to_thread(self.bot.ai.client.chat.completions.create, model="local-model", messages=[
                 {"role": "system", "content": "Summarize user's weekly tech learning trends in Korean. Group by topics."},
                 {"role": "user", "content": f"Articles:\n{payload['context_text']}"}
             ], temperature=0.3)
             report = resp.choices[0].message.content
+            logger.info("[_process_weekly] 리포트 생성 완료")
             
             today = datetime.datetime.now()
             filename = f"Weekly_Report_{today.strftime('%Y%m%d')}.md"
             filepath = os.path.join(SAVE_DIR, filename)
             with open(filepath, "w", encoding='utf-8') as f: f.write(report)
             
-            self.bot.uploader.upload(filepath, "Weekly Report")
+            await asyncio.to_thread(self.bot.uploader.upload, filepath, "Weekly Report")
             
             if len(report) > 1900:
                 await job.context.channel.send(f"✅ **주간 리포트 완료!** (파일 및 드라이브 저장됨)")
