@@ -55,15 +55,49 @@ class DriveUploader:
             logger.warning(f"드라이브가 연결되지 않아 업로드를 건너뜁니다: {title}")
             return False
         try:
-            filename = os.path.basename(filepath)
-            file_drive = self.drive.CreateFile({
-                'title': filename,
-                'parents': [{'id': self.folder_id}]
-            })
-            file_drive.SetContentFile(filepath)
-            file_drive.Upload()
-            logger.info(f"📤 Drive 업로드 성공: {filename}")
-            return True
+            import markdown
+            
+            # 파일 내용 읽기
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Markdown -> HTML 변환 (전체 문서 구조 포함)
+            html_fragment = markdown.markdown(content)
+            html_content = f"<html><body>{html_fragment}</body></html>"
+            
+            # Google Drive 업로드 (Google Docs로 변환)
+            # 확장가 없는 제목 사용
+            clean_title = title
+            if clean_title.lower().endswith('.md'):
+                clean_title = clean_title[:-3]
+
+            # HTML로 임시 저장하여 업로드 (MIME type 자동 감지 유도)
+            # pydrive2는 파일 확장자로 upload mime type을 추론함
+            import tempfile
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as temp:
+                temp.write(html_content)
+                temp_path = temp.name
+            
+            try:
+                # 1. 메타데이터 설정: 업로드할 파일(HTML)의 MIME type을 지정 (GDoc이 아님)
+                file_drive = self.drive.CreateFile({
+                    'title': clean_title,
+                    'parents': [{'id': self.folder_id}],
+                    'mimeType': 'text/html' 
+                })
+                
+                # 2. 파일 내용 설정
+                file_drive.SetContentFile(temp_path)
+                
+                # 3. 업로드 및 변환 요청: param={'convert': True}
+                file_drive.Upload(param={'convert': True}) 
+                
+                logger.info(f"📤 Drive 업로드 성공 (Google Doc): {clean_title}")
+                return True
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
         except Exception:
-            logger.error(f"❌ Drive 업로드 실패: {os.path.basename(filepath)}", exc_info=True)
+            logger.error(f"❌ Drive 업로드 실패: {title}", exc_info=True)
             return False
