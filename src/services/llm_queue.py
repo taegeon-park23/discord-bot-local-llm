@@ -111,8 +111,18 @@ class LLMQueue:
         title_match = re.search(r'^#\s+(.+)', deep_analysis)
         title = title_match.group(1).strip() if title_match else "DeepDive"
         safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+        
+        # Determine Topic for Folder (Analyze title/content implicitly or just use default)
+        # Deep Dive typically doesn't have explicit tags in payload, so we use title keywords
+        from src.services.tag_manager import TagManager
+        tm = TagManager()
+        topic = tm.get_primary_topic(title.split())
+        
+        save_path = os.path.join(SAVE_DIR, topic)
+        if not os.path.exists(save_path): os.makedirs(save_path)
+        
         filename = f"{date_str}_[DeepDive]_{safe_title}.md"
-        filepath = os.path.join(SAVE_DIR, filename)
+        filepath = os.path.join(save_path, filename)
         
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"{deep_analysis}\n\n---\n**Source:** {payload['url']}")

@@ -116,7 +116,8 @@ class KnowledgeBot(discord.Client):
         await message.channel.send("📅 **주간 리포트** 생성 중...")
         report_files = []
         today = datetime.datetime.now()
-        files = glob.glob(os.path.join(SAVE_DIR, "*.md"))
+        today = datetime.datetime.now()
+        files = glob.glob(os.path.join(SAVE_DIR, "**/*.md"), recursive=True)
         
         for f in files:
             if "[DeepDive]" in f: continue
@@ -149,7 +150,7 @@ class KnowledgeBot(discord.Client):
         
         logger.info(f"질문 요청 수신: {query}")
         await message.add_reaction("🤔")
-        files = glob.glob(os.path.join(SAVE_DIR, "*.md"))
+        files = glob.glob(os.path.join(SAVE_DIR, "**/*.md"), recursive=True)
         docs = []
         for f in files:
             try:
@@ -247,11 +248,25 @@ class KnowledgeBot(discord.Client):
     async def _save_and_upload(self, data, url, source_type, message):
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
         safe_title = re.sub(r'[\\/*?:"<>|]', "", data.get('title', 'Untitled'))
+        
+        # Determine Folder based on Topic
+        topic = "Uncategorized"
+        if data.get('topics'):
+            topic = data['topics'][0] # Use first topic
+        elif data.get('category'):
+            # Fallback to category if topics not present
+            from src.services.tag_manager import TagManager
+            tm = TagManager()
+            topic = tm.get_primary_topic([data.get('category')])
+            
+        save_path = os.path.join(SAVE_DIR, topic)
+        if not os.path.exists(save_path): os.makedirs(save_path)
+
         filename = f"{date_str}_{safe_title}.md"
-        filepath = os.path.join(SAVE_DIR, filename)
+        filepath = os.path.join(save_path, filename)
         
         summary = "\n".join([f"- {s}" for s in data.get('summary', [])]) if isinstance(data.get('summary'), list) else str(data.get('summary'))
-        content = f"---\ntitle: \"{data.get('title')}\"\ndate: {date_str}\ncategory: {data.get('category')}\nurl: {url}\n---\n# {data.get('title')}\n\n## 📝 3줄 요약\n{summary}\n\n## 🔗 원본\n{url} ({source_type})"
+        content = f"---\ntitle: \"{data.get('title')}\"\ndate: {date_str}\ncategory: {topic}\nurl: {url}\n---\n# {data.get('title')}\n\n## 📝 3줄 요약\n{summary}\n\n## 🔗 원본\n{url} ({source_type})"
         
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)

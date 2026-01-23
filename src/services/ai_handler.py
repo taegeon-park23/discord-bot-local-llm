@@ -63,10 +63,23 @@ class AIAgent:
     def analyze(self, text):
         if not text or len(text) < 50: return None
         
-        system_prompt = """
+        # Load valid topics from YAML source of truth
+        import yaml
+        topics_str = ""
+        try:
+            with open("src/data/tag_mapping.yaml", "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                valid_topics = [item['topic'] for item in data.get('mappings', [])]
+                topics_str = ", ".join(valid_topics)
+        except:
+             # Fallback if file read fails
+            topics_str = "Development, AI & ML, Design, Trends & News, Uncategorized"
+
+        system_prompt = f"""
 You are a technical content summarizer.
 Analyze the provided text and output ONLY valid JSON.
-Format: {"title":"Korean Title","summary":"3 bullet points in Korean","category":"Tech/AI/Eco","tags":["tag1"],"difficulty":"Easy/Med/Hard"}
+Choose 'category' STRICTLY from this list: [{topics_str}]
+Format: {{"title":"Korean Title","summary":"3 bullet points in Korean","category":"One of the topics above","tags":["tag1", "tag2"],"difficulty":"Easy/Med/Hard"}}
 """
         messages = [            
             {"role": "user", "content": f"{system_prompt}\n\n--- Input Text ---\n{text[:15000]}"}
@@ -81,7 +94,19 @@ Format: {"title":"Korean Title","summary":"3 bullet points in Korean","category"
             clean_json = content.replace("```json", "").replace("```", "").strip()
             start, end = clean_json.find('{'), clean_json.rfind('}') + 1
             if start != -1 and end != -1: clean_json = clean_json[start:end]
-            return json.loads(clean_json)
+            
+            result = json.loads(clean_json)
+            
+            # Tag Normalization
+            from src.services.tag_manager import TagManager
+            tag_manager = TagManager()
+            original_tags = result.get('tags', [])
+            if original_tags:
+                result['topics'] = tag_manager.normalize_tags(original_tags)
+                # Option: Overwrite tags or keep both. Keeping both for now as per plan flexibility.
+                # result['tags'] = result['topics'] 
+            
+            return result
         except Exception as e:
             logger.error(f"[AI] JSON 파싱 실패: {e}")
             return None
