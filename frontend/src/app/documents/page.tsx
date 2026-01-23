@@ -61,7 +61,7 @@ export default function DocumentsPage() {
                                 <td className="px-6 py-4">{new Date(doc.created_at).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-right">
                                     <Link href={`/documents/${doc.id}`} className="text-blue-400 hover:text-blue-300">
-                                        Edit
+                                        View
                                     </Link>
                                 </td>
                             </tr>

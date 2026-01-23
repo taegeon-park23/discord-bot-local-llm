@@ -10,7 +10,9 @@ from contextlib import asynccontextmanager
 
 from src.database.engine import get_db, engine
 from src.database.models import Document, Base
-from src.web_api.schemas import DocumentResponse, ContentUpdate
+from src.web_api.schemas import DocumentResponse, ContentUpdate, DashboardStats
+from sqlalchemy import func
+from datetime import timedelta, datetime
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,6 +35,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/api/stats", response_model=DashboardStats)
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    # Total
+    total_query = select(func.count(Document.id))
+    total_res = await db.execute(total_query)
+    total_docs = total_res.scalar() or 0
+
+    # Failed
+    from src.database.models import UploadStatus
+    failed_query = select(func.count(Document.id)).where(Document.gdrive_upload_status == UploadStatus.FAILED)
+    failed_res = await db.execute(failed_query)
+    failed_count = failed_res.scalar() or 0
+
+    # Recent (7 days)
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    recent_query = select(func.count(Document.id)).where(Document.created_at >= seven_days_ago)
+    recent_res = await db.execute(recent_query)
+    recent_count = recent_res.scalar() or 0
+
+    return DashboardStats(
+        total_documents=total_docs,
+        failed_uploads=failed_count,
+        recent_docs_count=recent_count
+    )
 
 @app.get("/api/documents", response_model=List[DocumentResponse])
 async def get_documents(

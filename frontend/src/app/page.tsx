@@ -1,6 +1,47 @@
+'use client';
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { fetchStats } from "@/lib/api";
+import { DashboardStats } from "@/lib/types";
 
 export default function Home() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetchStats()
+      .then(setStats)
+      .catch((err) => {
+        console.error(err);
+        setError(true);
+      });
+  }, []);
+
+  const getDisplayValue = (val: number | undefined) => {
+    if (stats && val !== undefined) return val.toLocaleString();
+    if (error) return "N/A";
+    return "...";
+  };
+
+  const statItems = [
+    {
+      label: "Total Documents",
+      value: getDisplayValue(stats?.total_documents),
+      color: "from-green-400 to-emerald-600"
+    },
+    {
+      label: "Recent (7d)",
+      value: getDisplayValue(stats?.recent_docs_count),
+      color: "from-blue-400 to-indigo-600"
+    },
+    {
+      label: "Failed Uploads",
+      value: getDisplayValue(stats?.failed_uploads),
+      color: "from-orange-400 to-red-600"
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-12">
       {/* Hero Section */}
@@ -29,11 +70,7 @@ export default function Home() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[
-          { label: "Total Documents", value: "1,248", color: "from-green-400 to-emerald-600" },
-          { label: "Weekly Growth", value: "+12%", color: "from-blue-400 to-indigo-600" },
-          { label: "Pending Uploads", value: "3", color: "from-orange-400 to-red-600" },
-        ].map((stat, i) => (
+        {statItems.map((stat, i) => (
           <div key={i} className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 p-6 hover:border-white/20 transition-all hover:shadow-2xl hover:shadow-purple-500/10">
             <div className={`absolute top-0 right-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-gradient-to-br ${stat.color} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`}></div>
             <h3 className="text-sm font-medium text-gray-400 mb-1">{stat.label}</h3>

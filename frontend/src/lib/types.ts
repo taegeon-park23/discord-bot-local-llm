@@ -24,8 +24,8 @@ export interface Document {
     last_synced_at?: string;
 }
 
-export interface Stats {
-    total_docs: number;
+export interface DashboardStats {
+    total_documents: number;
     failed_uploads: number;
-    recent_docs: number;
+    recent_docs_count: number;
 }

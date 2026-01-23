@@ -35,3 +35,8 @@ class DocumentResponse(DocumentBase):
 
 class ContentUpdate(BaseModel):
     content: str
+
+class DashboardStats(BaseModel):
+    total_documents: int
+    failed_uploads: int
+    recent_docs_count: int

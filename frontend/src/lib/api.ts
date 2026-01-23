@@ -1,6 +1,12 @@
-import { Document } from "./types";
+import { Document, DashboardStats } from "./types";
 
 const API_Base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export async function fetchStats(): Promise<DashboardStats> {
+    const res = await fetch(`${API_Base}/api/stats`);
+    if (!res.ok) throw new Error("Failed to fetch stats");
+    return res.json();
+}
 
 export async function fetchDocuments(skip = 0, limit = 50): Promise<Document[]> {
     const res = await fetch(`${API_Base}/api/documents?skip=${skip}&limit=${limit}`, {
