@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import glob
 import aiohttp
-from src.logger import get_logger
+from src.logger import get_logger, LOG_FILE
 
 logger = get_logger(__name__)
 
@@ -104,6 +104,8 @@ class KnowledgeBot(discord.Client):
                 await self._handle_weekly_report(message)
             elif message.content.startswith("!ask"):
                 await self._handle_ask_question(message)
+            elif message.content.startswith("!log"):
+                await self._handle_log_request(message)
             return
 
         if message.channel.id == INPUT_CHANNEL_ID:
@@ -168,6 +170,52 @@ class KnowledgeBot(discord.Client):
             context=message
         ))
         await message.remove_reaction("🤔", self.user)
+
+    async def _handle_log_request(self, message):
+        """!log [--lines] 명령을 처리합니다."""
+        lines_to_read = 100
+        args = message.content.split()
+        for arg in args:
+            if arg.startswith("--"):
+                try:
+                    lines_to_read = int(arg[2:])
+                except: pass
+        
+        if not os.path.exists(LOG_FILE):
+            await message.channel.send("⚠️ 로그 파일이 존재하지 않습니다.")
+            return
+
+        try:
+            # 마지막 N줄 읽기
+            with open(LOG_FILE, "r", encoding="utf-8") as f:
+                # 효율적인 tail 구현 (deque 사용)
+                from collections import deque
+                lines = deque(f, maxlen=lines_to_read)
+                log_content = "".join(lines)
+            
+            if not log_content:
+                await message.channel.send("⚠️ 로그가 비어있습니다.")
+                return
+
+            # 내용이 짧으면 메시지로, 길면 파일로 전송
+            if len(log_content) < 1900:
+                await message.channel.send(f"📋 **최근 로그 ({len(lines)} lines):**\n```log\n{log_content}```")
+            else:
+                # 임시 파일 생성
+                temp_log_path = os.path.join(SAVE_DIR, f"log_tail_{lines_to_read}.txt")
+                with open(temp_log_path, "w", encoding="utf-8") as f:
+                    f.write(log_content)
+                
+                await message.channel.send(
+                    f"📋 **최근 로그 ({len(lines)} lines)**", 
+                    file=discord.File(temp_log_path)
+                )
+                # 전송 후 임시 파일 삭제
+                os.remove(temp_log_path)
+
+        except Exception as e:
+            logger.error(f"로그 조회 실패: {e}")
+            await message.channel.send(f"❌ 로그 조회 실패: {e}")
 
     async def _handle_link_submission(self, message):
         url_match = re.search(r'(https?://\S+)', message.content)

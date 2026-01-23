@@ -139,12 +139,16 @@ class LLMQueue:
         payload = job.payload
         logger.info(f"[_process_ask] 질문 처리 시작: {payload['query']}")
         try:
-            resp = await asyncio.to_thread(self.bot.ai.client.chat.completions.create, model="local-model", messages=[
-                {"role": "system", "content": "Answer the question based strictly on the provided Context. Answer in Korean."},
-                {"role": "user", "content": f"Context:\n{''.join(payload['docs'][:5])}\n\nQ: {payload['query']}"}
+            system_prompt = "Answer the question based strictly on the provided Context. Answer in Korean."
+            resp_content = await asyncio.to_thread(self.bot.ai.chat, messages=[
+                {"role": "user", "content": f"{system_prompt}\n\n---Context:\n{''.join(payload['docs'][:5])}\n\nQ: {payload['query']}"}
             ], temperature=0.1)
+            
+            if not resp_content:
+                raise Exception("AI 답변 생성 실패 (Empty response)")
+                
             logger.info("[_process_ask] 답변 생성 완료")
-            await job.context.channel.send(f"💡 **답변:**\n{resp.choices[0].message.content}")
+            await job.context.channel.send(f"💡 **답변:**\n{resp_content}")
         except Exception as e:
             raise Exception(f"AI 답변 생성 실패: {e}")
 
@@ -156,11 +160,13 @@ class LLMQueue:
         payload = job.payload
         logger.info("[_process_weekly] 주간 리포트 생성 시작")
         try:
-            resp = await asyncio.to_thread(self.bot.ai.client.chat.completions.create, model="local-model", messages=[
-                {"role": "system", "content": "Summarize user's weekly tech learning trends in Korean. Group by topics."},
-                {"role": "user", "content": f"Articles:\n{payload['context_text']}"}
+            system_prompt = "Summarize user's weekly tech learning trends in Korean. Group by topics."
+            report = await asyncio.to_thread(self.bot.ai.chat, messages=[
+                {"role": "user", "content": f"{system_prompt}\n\n---Articles:\n{payload['context_text']}"}
             ], temperature=0.3)
-            report = resp.choices[0].message.content
+
+            if not report:
+                raise Exception("AI 리포트 생성 실패 (Empty response)")
             logger.info("[_process_weekly] 리포트 생성 완료")
             
             today = datetime.datetime.now()

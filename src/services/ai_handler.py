@@ -106,3 +106,7 @@ Structure:
         ]
 
         return self._call_llm_with_failover(messages, temperature=0.3)
+
+    def chat(self, messages, temperature=0.1):
+        """Standard chat interface with failover support"""
+        return self._call_llm_with_failover(messages, temperature)
