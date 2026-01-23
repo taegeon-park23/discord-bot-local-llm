@@ -1,6 +1,6 @@
 import { Document, DashboardStats, SearchResultItem } from "./types";
 
-const API_Base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_Base = "";
 
 export async function fetchStats(): Promise<DashboardStats> {
     const res = await fetch(`${API_Base}/api/stats`);

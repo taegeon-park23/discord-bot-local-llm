@@ -16,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen bg-black text-white selection:bg-blue-500/30`}>
         <Navbar />
         <main className="container mx-auto px-4 py-8">
