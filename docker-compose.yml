@@ -51,7 +51,7 @@ services:
     ports:
       - "4040:4040"
     depends_on:
-      - obsidian
+      - frontend
     restart: unless-stopped
 
   # 4. PostgreSQL Database
