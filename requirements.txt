@@ -9,3 +9,11 @@ aiohttp
 pydrive2
 PyYAML
 markdown
+# Backend & DB
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+asyncpg
+python-multipart
+aiofiles

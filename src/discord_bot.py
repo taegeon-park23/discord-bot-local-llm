@@ -271,8 +271,32 @@ class KnowledgeBot(discord.Client):
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
 
+        # --- DB Hybrid Sync Start ---
+        from src.services.db_service import DBService
+        from src.database.models import DocType, UploadStatus
+        
+        # Register to DB
+        try:
+            await DBService.register_document(
+                title=data.get('title'),
+                local_path=filepath,
+                doc_type=DocType.SUMMARY,
+                source_url=url
+            )
+        except Exception as e:
+            logger.error(f"DB Registration failed: {e}")
+        # --- DB Hybrid Sync End ---
+
         # Blocking I/O를 별도 스레드로 분리하여 이벤트 루프 차단 방지
-        await asyncio.to_thread(self.uploader.upload, filepath, data.get('title'))
+        upload_success = await asyncio.to_thread(self.uploader.upload, filepath, data.get('title'))
+
+        # --- DB Status Update ---
+        try:
+            status = UploadStatus.SUCCESS if upload_success else UploadStatus.FAILED
+            await DBService.update_upload_status(filepath, status)
+        except Exception as e:
+            logger.error(f"DB Status Update failed: {e}")
+        # ------------------------
 
         await message.remove_reaction("👀", self.user)
         await message.add_reaction("✅")

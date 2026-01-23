@@ -128,9 +128,32 @@ class LLMQueue:
             f.write(f"{deep_analysis}\n\n---\n**Source:** {payload['url']}")
         logger.info(f"[_process_deep_dive] 파일 저장됨: {filename}")
 
+        # --- DB Hybrid Sync Start ---
+        from src.services.db_service import DBService
+        from src.database.models import DocType, UploadStatus
+        
+        try:
+            await DBService.register_document(
+                title=title,
+                local_path=filepath,
+                doc_type=DocType.DEEP_DIVE,
+                source_url=payload['url']
+            )
+        except Exception as e:
+            logger.error(f"DB Registration failed (Deep Dive): {e}")
+        # ----------------------------
+
         # Blocking I/O
         uploaded = await asyncio.to_thread(self.bot.uploader.upload, filepath, title)
         drive_msg = "📂 **Drive 업로드 완료**" if uploaded else "⚠️ **Drive 실패**"
+
+        # --- DB Status Update ---
+        try:
+            status = UploadStatus.SUCCESS if uploaded else UploadStatus.FAILED
+            await DBService.update_upload_status(filepath, status)
+        except Exception as e:
+            logger.error(f"DB Status Update failed (Deep Dive): {e}")
+        # ------------------------
 
         # 결과 채널로 전송 (서머리 채널)
         out_channel = self.bot.get_channel(self.output_channel_id)

@@ -13,7 +13,11 @@ services:
       - ./mycreds.txt:/app/mycreds.txt
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres/knowledge_base
     restart: unless-stopped
+    depends_on:
+      - postgres
 
   # 2. 옵시디언 풀 버전 (뷰어 + 에디터)
   obsidian:
@@ -32,7 +36,7 @@ services:
       # 설정 저장소
       - ./obsidian-config:/config
     ports:
-      - "3000:3000"
+      - "3999:3999"
     # [핵심] VNC 화면이 깨지거나 흰 화면이 뜨지 않도록 메모리 확보
     shm_size: "2gb"
     restart: unless-stopped
@@ -41,7 +45,7 @@ services:
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok_tunnel
-    command: "http obsidian:3000 --host-header=rewrite"
+    command: "http obsidian:3999 --host-header=rewrite"
     environment:
       - NGROK_AUTHTOKEN=${NGROK_TOKEN}
     ports:
@@ -49,3 +53,60 @@ services:
     depends_on:
       - obsidian
     restart: unless-stopped
+
+  # 4. PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: knowledge_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-knowledge_base}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 5. Backend API (FastAPI)
+  backend-api:
+    build: .
+    container_name: knowledge_api
+    command: sh -c "alembic upgrade head && uvicorn src.web_api.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./src:/app/src # 소스 코드 라이브 리로딩
+      - ./migrations:/app/migrations
+      - ./alembic.ini:/app/alembic.ini
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./client_secrets.json:/app/client_secrets.json
+      - ./mycreds.txt:/app/mycreds.txt
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@postgres/knowledge_base
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # 6. Frontend Dashboard (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: knowledge_dashboard
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
