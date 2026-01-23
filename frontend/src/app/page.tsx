@@ -71,7 +71,7 @@ export default function Home() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {statItems.map((stat, i) => (
-          <div key={i} className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 p-6 hover:border-white/20 transition-all hover:shadow-2xl hover:shadow-purple-500/10">
+          <div key={`stat-${i}-${stat.label}`} className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 p-6 hover:border-white/20 transition-all hover:shadow-2xl hover:shadow-purple-500/10">
             <div className={`absolute top-0 right-0 h-24 w-24 translate-x-8 -translate-y-8 rounded-full bg-gradient-to-br ${stat.color} opacity-20 blur-2xl group-hover:opacity-30 transition-opacity`}></div>
             <h3 className="text-sm font-medium text-gray-400 mb-1">{stat.label}</h3>
             <p className="text-3xl font-bold text-white">{stat.value}</p>

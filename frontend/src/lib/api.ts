@@ -43,8 +43,17 @@ export async function retryUpload(id: number): Promise<void> {
     if (!res.ok) throw new Error("Failed to retry upload");
 }
 
-export async function searchDocuments(query: string, limit = 5): Promise<SearchResultItem[]> {
-    const res = await fetch(`${API_Base}/api/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+export async function searchDocuments(
+    query: string,
+    limit = 10,
+    offset = 0,
+    threshold?: number
+): Promise<SearchResultItem[]> {
+    let url = `${API_Base}/api/search?q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`;
+    if (threshold !== undefined) {
+        url += `&threshold=${threshold}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to search documents");
     return res.json();
 }

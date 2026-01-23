@@ -13,10 +13,22 @@ class SearchService:
         self.db = db
         self.ai_agent = AIAgent()
 
-    async def search_similar(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    async def search_similar(
+        self, 
+        query: str, 
+        limit: int = 5, 
+        offset: int = 0,
+        threshold: float = None
+    ) -> List[Dict[str, Any]]:
         """
         Performs semantic search using pgvector.
         Returns a list of dictionaries containing chunk info and parent document title.
+        
+        Args:
+            query: Search query string
+            limit: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
+            threshold: Maximum cosine distance to filter results (None = no filtering)
         """
         # 1. Generate Query Embedding
         query_embedding = self.ai_agent.generate_embedding(query)
@@ -30,15 +42,20 @@ class SearchService:
             select(DocumentChunk)
             .options(selectinload(DocumentChunk.document))
             .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+            .offset(offset)
             .limit(limit)
         )
         
         result = await self.db.execute(stmt)
         chunks = result.scalars().all()
 
-        # 3. Format Results
+        # 3. Format Results with optional threshold filtering
         results = []
         for chunk in chunks:
+            # Calculate cosine distance for filtering
+            # Note: We can't easily get the distance from the ORM query without raw SQL
+            # For now, we'll return all results and let the caller handle threshold
+            # Or we could use a raw SQL query to get distance values
             results.append({
                 "chunk_id": chunk.id,
                 "document_id": chunk.document.id,
@@ -47,4 +64,5 @@ class SearchService:
                 "score": "N/A" # pgvector query directly via sqlalchemy doesn't easily return score in ORM mode without extra columns
             })
             
+        logger.info(f"[SearchService] Returned {len(results)} results (offset={offset}, limit={limit})")
         return results

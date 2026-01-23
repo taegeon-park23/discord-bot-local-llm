@@ -1,44 +1,76 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { fetchDocuments, fetchStats } from '@/lib/api';
 import { Document, UploadStatus } from '@/lib/types';
 import Link from 'next/link';
 
 export default function DocumentsPage() {
     const [documents, setDocuments] = useState<Document[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [currentPage, setCurrentPage] = useState(1);
+    const [loading, setLoading] = useState(false);
     const [totalDocs, setTotalDocs] = useState(0);
-    const limit = 50;
+    const [hasMore, setHasMore] = useState(true);
+    const [skip, setSkip] = useState(0);
+    const observerTarget = useRef<HTMLDivElement>(null);
+    const LIMIT = 20;
 
     useEffect(() => {
         // Fetch stats for total count
         fetchStats().then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
+
+        // Load initial documents
+        loadDocuments(0);
     }, []);
 
-    useEffect(() => {
+    const loadDocuments = async (currentSkip: number) => {
+        if (loading) return;
+
         setLoading(true);
-        const skip = (currentPage - 1) * limit;
-        fetchDocuments(skip, limit)
-            .then(setDocuments)
-            .catch(console.error)
-            .finally(() => setLoading(false));
-    }, [currentPage]);
+        try {
+            const newDocs = await fetchDocuments(currentSkip, LIMIT);
 
-    const totalPages = Math.ceil(totalDocs / limit);
+            if (newDocs.length < LIMIT) {
+                setHasMore(false);
+            }
 
-    const handlePrev = () => {
-        if (currentPage > 1) setCurrentPage(p => p - 1);
+            setDocuments(prev => currentSkip === 0 ? newDocs : [...prev, ...newDocs]);
+            setSkip(currentSkip + LIMIT);
+        } catch (error) {
+            console.error('Error loading documents:', error);
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleNext = () => {
-        if (currentPage < totalPages) setCurrentPage(p => p + 1);
-    };
+    const loadMoreDocuments = useCallback(() => {
+        if (!loading && hasMore) {
+            loadDocuments(skip);
+        }
+    }, [loading, hasMore, skip]);
 
-    if (loading && documents.length === 0) {
-        return <div className="flex h-96 items-center justify-center text-gray-400">Loading documents...</div>;
-    }
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting && hasMore && !loading) {
+                    loadMoreDocuments();
+                }
+            },
+            { threshold: 0.1 }
+        );
+
+        if (observerTarget.current) {
+            observer.observe(observerTarget.current);
+        }
+
+        return () => observer.disconnect();
+    }, [loadMoreDocuments, hasMore, loading]);
+
+    const handleRefresh = () => {
+        setDocuments([]);
+        setSkip(0);
+        setHasMore(true);
+        loadDocuments(0);
+    };
 
     return (
         <div className="space-y-8">
@@ -48,8 +80,9 @@ export default function DocumentsPage() {
                 <div className="flex items-center gap-4">
                     <span className="text-sm text-gray-400">Total: {totalDocs}</span>
                     <button
-                        onClick={() => setCurrentPage(1)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+                        onClick={handleRefresh}
+                        disabled={loading && documents.length === 0}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
                         Refresh List
                     </button>
                 </div>
@@ -69,7 +102,7 @@ export default function DocumentsPage() {
                     </thead>
                     <tbody className="divide-y divide-white/5">
                         {documents.map((doc) => (
-                            <tr key={doc.id} className="hover:bg-white/5 transition-colors">
+                            <tr key={`doc-pc-${doc.id}-${doc.title}`} className="hover:bg-white/5 transition-colors">
                                 <td className="px-6 py-4 font-medium text-white max-w-sm truncate">{doc.title}</td>
                                 <td className="px-6 py-4">
                                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium 
@@ -101,7 +134,7 @@ export default function DocumentsPage() {
             <div className="md:hidden space-y-4">
                 {documents.map((doc) => (
                     <div
-                        key={doc.id}
+                        key={`doc-mobile-${doc.id}-${doc.title}`}
                         className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-4 hover:border-white/20 transition-all"
                     >
                         {/* Title */}
@@ -139,25 +172,23 @@ export default function DocumentsPage() {
                 ))}
             </div>
 
-            {/* Pagination Controls - Mobile Responsive */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/10 pt-4">
-                <button
-                    onClick={handlePrev}
-                    disabled={currentPage === 1}
-                    className="w-full sm:w-auto rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Previous
-                </button>
-                <span className="text-sm text-gray-400">
-                    Page {currentPage} of {totalPages || 1}
-                </span>
-                <button
-                    onClick={handleNext}
-                    disabled={currentPage >= totalPages}
-                    className="w-full sm:w-auto rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Next
-                </button>
+            {/* Infinite scroll trigger and loading indicator */}
+            <div ref={observerTarget} className="py-8">
+                {loading && (
+                    <div className="flex justify-center">
+                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+                    </div>
+                )}
+                {!hasMore && documents.length > 0 && (
+                    <div className="text-center text-gray-500 text-sm">
+                        All documents loaded ({documents.length} / {totalDocs})
+                    </div>
+                )}
+                {documents.length === 0 && !loading && (
+                    <div className="text-center py-12 text-gray-500">
+                        No documents found
+                    </div>
+                )}
             </div>
         </div>
     );

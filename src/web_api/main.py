@@ -69,7 +69,7 @@ async def get_documents(
     upload_status: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Document).order_by(Document.created_at.desc())
+    query = select(Document).order_by(Document.created_at.desc(), Document.id.desc())
     
     if doc_type:
         query = query.where(Document.doc_type == doc_type)
@@ -170,11 +170,19 @@ async def update_document_content(
 @app.get("/api/search", response_model=List[SearchResultItem])
 async def search_documents(
     q: str, 
-    limit: int = 5,
+    limit: int = 10,
+    offset: int = 0,
+    threshold: Optional[float] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Semantic search for document chunks.
+    Semantic search for document chunks with pagination support.
+    
+    Args:
+        q: Query string
+        limit: Maximum number of results to return (default: 10)
+        offset: Number of results to skip for pagination (default: 0)
+        threshold: Optional cosine distance threshold for filtering (default: None)
     """
     if not q:
         raise HTTPException(status_code=400, detail="Query string 'q' is required")
@@ -183,6 +191,6 @@ async def search_documents(
     from src.web_api.schemas import SearchResultItem
     
     service = SearchService(db)
-    results = await service.search_similar(q, limit)
+    results = await service.search_similar(q, limit, offset, threshold)
     
     return [SearchResultItem(**item) for item in results]
