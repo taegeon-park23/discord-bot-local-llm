@@ -57,11 +57,11 @@ export default function Home() {
             Manage your AI-curated summaries and deep dives.
             Sync securely between local storage and Google Drive.
           </p>
-          <div className="flex gap-4 justify-center md:justify-start">
-            <Link href="/documents" className="px-8 py-3 rounded-full bg-white text-black font-semibold hover:bg-gray-200 transition-colors shadow-lg shadow-white/10">
+          <div className="flex flex-col md:flex-row gap-4 justify-center md:justify-start">
+            <Link href="/documents" className="w-full md:w-auto px-8 py-3 rounded-full bg-white text-black font-semibold hover:bg-gray-200 transition-colors shadow-lg shadow-white/10 text-center">
               Browse Documents
             </Link>
-            <Link href="/settings" className="px-8 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-colors backdrop-blur-md">
+            <Link href="/settings" className="w-full md:w-auto px-8 py-3 rounded-full bg-white/5 border border-white/10 text-white font-semibold hover:bg-white/10 transition-colors backdrop-blur-md text-center">
               Configuration
             </Link>
           </div>

@@ -42,7 +42,8 @@ export default function DocumentsPage() {
 
     return (
         <div className="space-y-8">
-            <div className="flex items-center justify-between">
+            {/* Header - Mobile Responsive */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <h1 className="text-3xl font-bold text-white">Documents</h1>
                 <div className="flex items-center gap-4">
                     <span className="text-sm text-gray-400">Total: {totalDocs}</span>
@@ -54,7 +55,8 @@ export default function DocumentsPage() {
                 </div>
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
+            {/* Desktop Table View - Hidden on Mobile */}
+            <div className="hidden md:block overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
                 <table className="w-full text-left text-sm text-gray-400">
                     <thead className="bg-white/5 text-gray-200">
                         <tr>
@@ -95,12 +97,54 @@ export default function DocumentsPage() {
                 </table>
             </div>
 
-            {/* Pagination Controls */}
-            <div className="flex items-center justify-between border-t border-white/10 pt-4">
+            {/* Mobile Card View - Visible on Mobile Only */}
+            <div className="md:hidden space-y-4">
+                {documents.map((doc) => (
+                    <div
+                        key={doc.id}
+                        className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-4 hover:border-white/20 transition-all"
+                    >
+                        {/* Title */}
+                        <h3 className="font-semibold text-white text-base mb-3 line-clamp-2">
+                            {doc.title}
+                        </h3>
+
+                        {/* Tags Row */}
+                        <div className="flex flex-wrap gap-2 mb-3">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium 
+                                ${doc.doc_type === 'SUMMARY' ? 'bg-blue-500/10 text-blue-400' :
+                                    doc.doc_type === 'DEEP_DIVE' ? 'bg-purple-500/10 text-purple-400' : 'bg-gray-500/10 text-gray-400'}`}>
+                                {doc.doc_type}
+                            </span>
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium 
+                                ${doc.gdrive_upload_status === 'SUCCESS' ? 'bg-green-500/10 text-green-400' :
+                                    doc.gdrive_upload_status === 'FAILED' ? 'bg-red-500/10 text-red-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                                {doc.gdrive_upload_status}
+                            </span>
+                        </div>
+
+                        {/* Date and Action Row */}
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-400">
+                                {new Date(doc.created_at).toLocaleDateString()}
+                            </span>
+                            <Link
+                                href={`/documents/${doc.id}`}
+                                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                            >
+                                View
+                            </Link>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Pagination Controls - Mobile Responsive */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-white/10 pt-4">
                 <button
                     onClick={handlePrev}
                     disabled={currentPage === 1}
-                    className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Previous
                 </button>
@@ -110,7 +154,7 @@ export default function DocumentsPage() {
                 <button
                     onClick={handleNext}
                     disabled={currentPage >= totalPages}
-                    className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Next
                 </button>

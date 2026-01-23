@@ -40,25 +40,25 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-20">
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-white/10 pb-6">
+            {/* Header - Mobile Responsive */}
+            <div className="flex flex-col gap-4 border-b border-white/10 pb-6">
                 <div>
-                    <h1 className="text-3xl font-bold text-white mb-2">{doc.title}</h1>
-                    <div className="flex gap-3 text-sm text-gray-400">
+                    <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">{doc.title}</h1>
+                    <div className="flex flex-wrap gap-2 text-sm text-gray-400">
                         <span className="px-2 py-1 rounded bg-white/5">{doc.doc_type}</span>
-                        <span className="px-2 py-1 rounded bg-white/5">{doc.local_file_path}</span>
+                        <span className="px-2 py-1 rounded bg-white/5 truncate max-w-[200px] md:max-w-none">{doc.local_file_path}</span>
                     </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <button
                         onClick={() => router.back()}
-                        className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
+                        className="w-full sm:w-auto px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors"
                     >
                         Back
                     </button>
                     <Link
                         href={`/documents/${doc.id}/edit`}
-                        className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
+                        className="w-full sm:w-auto px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors text-center"
                     >
                         Edit Document
                     </Link>

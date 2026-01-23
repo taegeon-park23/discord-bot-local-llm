@@ -32,7 +32,7 @@ export default function SearchPage() {
             <h1 className="text-3xl font-bold text-white mb-8">Semantic Search</h1>
 
             {/* Search Input */}
-            <form onSubmit={handleSearch} className="relative">
+            <form onSubmit={handleSearch} className="flex flex-col md:block md:relative gap-3 md:gap-0">
                 <input
                     type="text"
                     value={query}
@@ -43,7 +43,7 @@ export default function SearchPage() {
                 <button
                     type="submit"
                     disabled={loading || !query.trim()}
-                    className="absolute right-3 top-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full md:w-auto md:absolute md:right-3 md:top-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                     {loading ? 'Searching...' : 'Search'}
                 </button>
