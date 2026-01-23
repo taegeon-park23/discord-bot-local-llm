@@ -135,3 +135,25 @@ Structure:
     def chat(self, messages, temperature=0.1):
         """Standard chat interface with failover support"""
         return self._call_llm_with_failover(messages, temperature)
+
+    def generate_embedding(self, text):
+        """Generates embedding for given text using Gemini Text Embedding 004"""
+        if not text: return None
+        
+        # Key Rotation for Embeddings
+        for idx, key in enumerate(self.gemini_keys):
+            try:
+                client = self._get_client(is_local=False, api_key=key)
+                # Note: openai-python wrapper for Gemini supports embeddings.create
+                # Model name: text-embedding-004
+                response = client.embeddings.create(
+                    input=text,
+                    model="text-embedding-004"
+                )
+                return response.data[0].embedding
+            except Exception as e:
+                logger.warning(f"[AI] Embedding (Key #{idx+1}) 실패: {e}")
+                continue 
+        
+        logger.error("[AI] ❌ 모든 Embedding 생성 실패")
+        return None

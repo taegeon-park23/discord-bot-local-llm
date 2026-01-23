@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from src.database.engine import get_db, engine
 from src.database.models import Document, Base
-from src.web_api.schemas import DocumentResponse, ContentUpdate, DashboardStats
+from src.web_api.schemas import DocumentResponse, ContentUpdate, DashboardStats, SearchResultItem
 from sqlalchemy import func
 from datetime import timedelta, datetime
 
@@ -166,3 +166,23 @@ async def update_document_content(
     await db.refresh(doc)
     
     return {"status": "success", "updated_at": doc.updated_at}
+
+@app.get("/api/search", response_model=List[SearchResultItem])
+async def search_documents(
+    q: str, 
+    limit: int = 5,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Semantic search for document chunks.
+    """
+    if not q:
+        raise HTTPException(status_code=400, detail="Query string 'q' is required")
+    
+    from src.services.search_service import SearchService
+    from src.web_api.schemas import SearchResultItem
+    
+    service = SearchService(db)
+    results = await service.search_similar(q, limit)
+    
+    return [SearchResultItem(**item) for item in results]

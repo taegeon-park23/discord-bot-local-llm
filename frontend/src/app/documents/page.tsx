@@ -1,22 +1,42 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fetchDocuments } from '@/lib/api';
+import { fetchDocuments, fetchStats } from '@/lib/api';
 import { Document, UploadStatus } from '@/lib/types';
 import Link from 'next/link';
 
 export default function DocumentsPage() {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalDocs, setTotalDocs] = useState(0);
+    const limit = 50;
 
     useEffect(() => {
-        fetchDocuments()
+        // Fetch stats for total count
+        fetchStats().then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
+    }, []);
+
+    useEffect(() => {
+        setLoading(true);
+        const skip = (currentPage - 1) * limit;
+        fetchDocuments(skip, limit)
             .then(setDocuments)
             .catch(console.error)
             .finally(() => setLoading(false));
-    }, []);
+    }, [currentPage]);
 
-    if (loading) {
+    const totalPages = Math.ceil(totalDocs / limit);
+
+    const handlePrev = () => {
+        if (currentPage > 1) setCurrentPage(p => p - 1);
+    };
+
+    const handleNext = () => {
+        if (currentPage < totalPages) setCurrentPage(p => p + 1);
+    };
+
+    if (loading && documents.length === 0) {
         return <div className="flex h-96 items-center justify-center text-gray-400">Loading documents...</div>;
     }
 
@@ -24,9 +44,14 @@ export default function DocumentsPage() {
         <div className="space-y-8">
             <div className="flex items-center justify-between">
                 <h1 className="text-3xl font-bold text-white">Documents</h1>
-                <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
-                    Refresh List
-                </button>
+                <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-400">Total: {totalDocs}</span>
+                    <button
+                        onClick={() => setCurrentPage(1)}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
+                        Refresh List
+                    </button>
+                </div>
             </div>
 
             <div className="overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
@@ -68,6 +93,27 @@ export default function DocumentsPage() {
                         ))}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between border-t border-white/10 pt-4">
+                <button
+                    onClick={handlePrev}
+                    disabled={currentPage === 1}
+                    className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Previous
+                </button>
+                <span className="text-sm text-gray-400">
+                    Page {currentPage} of {totalPages || 1}
+                </span>
+                <button
+                    onClick={handleNext}
+                    disabled={currentPage >= totalPages}
+                    className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    Next
+                </button>
             </div>
         </div>
     );

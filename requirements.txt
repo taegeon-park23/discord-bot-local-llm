@@ -18,3 +18,5 @@ asyncpg
 python-multipart
 aiofiles
 tqdm
+pgvector
+langchain-text-splitters

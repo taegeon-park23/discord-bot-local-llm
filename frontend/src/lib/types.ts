@@ -29,3 +29,11 @@ export interface DashboardStats {
     failed_uploads: number;
     recent_docs_count: number;
 }
+
+export interface SearchResultItem {
+    chunk_id: number;
+    document_id: number;
+    document_title: string;
+    content: string;
+    score: string;
+}

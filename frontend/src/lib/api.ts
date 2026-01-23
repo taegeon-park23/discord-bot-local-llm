@@ -1,4 +1,4 @@
-import { Document, DashboardStats } from "./types";
+import { Document, DashboardStats, SearchResultItem } from "./types";
 
 const API_Base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -41,4 +41,10 @@ export async function updateDocumentContent(id: number, content: string): Promis
 export async function retryUpload(id: number): Promise<void> {
     const res = await fetch(`${API_Base}/api/documents/${id}/retry`, { method: "POST" });
     if (!res.ok) throw new Error("Failed to retry upload");
+}
+
+export async function searchDocuments(query: string, limit = 5): Promise<SearchResultItem[]> {
+    const res = await fetch(`${API_Base}/api/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    if (!res.ok) throw new Error("Failed to search documents");
+    return res.json();
 }

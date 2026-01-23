@@ -38,3 +38,21 @@ class Document(Base):
 
     def __repr__(self):
         return f"<Document id={self.id} title='{self.title}' status='{self.gdrive_upload_status}'>"
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import relationship
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(768))  # Gemini Text Embedding 004 dimension
+
+    document = relationship("Document", backref="chunks")
+
+    def __repr__(self):
+        return f"<DocumentChunk id={self.id} doc_id={self.document_id} index={self.chunk_index}>"

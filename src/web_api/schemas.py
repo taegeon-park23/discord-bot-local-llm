@@ -40,3 +40,13 @@ class DashboardStats(BaseModel):
     total_documents: int
     failed_uploads: int
     recent_docs_count: int
+
+class SearchResultItem(BaseModel):
+    chunk_id: int
+    document_id: int
+    document_title: str
+    content: str
+    score: Optional[str] = "N/A"
+
+class SearchResponse(BaseModel):
+    results: list[SearchResultItem]

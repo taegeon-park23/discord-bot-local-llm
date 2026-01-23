@@ -28,3 +28,13 @@ async def get_db():
             yield session
         finally:
             await session.close()
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def get_db_context():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
