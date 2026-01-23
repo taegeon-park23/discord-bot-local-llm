@@ -17,3 +17,4 @@ alembic
 asyncpg
 python-multipart
 aiofiles
+tqdm

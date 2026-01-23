@@ -75,6 +75,7 @@ services:
     command: sh -c "alembic upgrade head && uvicorn src.web_api.main:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
       - ./src:/app/src # 소스 코드 라이브 리로딩
+      - ./scripts:/app/scripts
       - ./migrations:/app/migrations
       - ./alembic.ini:/app/alembic.ini
       - ./data:/app/data
