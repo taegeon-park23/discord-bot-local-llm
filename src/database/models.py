@@ -60,3 +60,26 @@ class DocumentChunk(Base):
 
     def __repr__(self):
         return f"<DocumentChunk id={self.id} doc_id={self.document_id} index={self.chunk_index}>"
+
+class TagStatistics(Base):
+    """태그별 집계 통계를 저장하는 테이블"""
+    __tablename__ = "tag_statistics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tag = Column(String(255), unique=True, nullable=False, index=True)
+    count = Column(Integer, default=0, nullable=False)
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<TagStatistics tag='{self.tag}' count={self.count}>"
+
+class BatchJobState(Base):
+    """배치 작업의 상태를 추적하는 테이블"""
+    __tablename__ = "batch_job_state"
+
+    job_name = Column(String(50), primary_key=True)  # e.g., "tag_analytics"
+    last_processed_id = Column(Integer, default=0, nullable=False)
+    last_run_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<BatchJobState job='{self.job_name}' last_id={self.last_processed_id}>"

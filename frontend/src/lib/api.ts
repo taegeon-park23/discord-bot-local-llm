@@ -19,6 +19,7 @@ export async function fetchDocuments(
         category?: string;
         docType?: string;
         uploadStatus?: string;
+        tag?: string;
     }
 ): Promise<Document[]> {
     const params = new URLSearchParams({
@@ -29,6 +30,7 @@ export async function fetchDocuments(
     if (options?.category) params.append('category', options.category);
     if (options?.docType) params.append('doc_type', options.docType);
     if (options?.uploadStatus) params.append('upload_status', options.uploadStatus);
+    if (options?.tag) params.append('tag', options.tag);
 
     const res = await fetch(`${API_Base}/api/documents?${params}`, {
         method: "GET",

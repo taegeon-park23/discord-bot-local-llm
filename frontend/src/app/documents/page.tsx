@@ -5,6 +5,7 @@ import { fetchDocuments, fetchStats } from '@/lib/api';
 import { Document, UploadStatus } from '@/lib/types';
 import Link from 'next/link';
 import DocumentFilters from '@/components/DocumentFilters';
+import TopTagsList from '@/components/TopTagsList';
 
 import { useRouter } from 'next/navigation';
 
@@ -17,28 +18,21 @@ export default function DocumentsPage() {
     const [skip, setSkip] = useState(0);
     const [selectedCategory, setSelectedCategory] = useState<string>("All");
     const [selectedDocType, setSelectedDocType] = useState<string>("All");
+    const [selectedTag, setSelectedTag] = useState<string>("");
     const observerTarget = useRef<HTMLDivElement>(null);
+    const loadingRef = useRef(false);
     const LIMIT = 20;
 
-    useEffect(() => {
-        // Fetch stats for total count
-        fetchStats({
-            category: selectedCategory,
-            docType: selectedDocType
-        }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
+    const loadDocuments = useCallback(async (currentSkip: number) => {
+        if (loadingRef.current) return;
 
-        // Load initial documents
-        loadDocuments(0);
-    }, []);
-
-    const loadDocuments = async (currentSkip: number) => {
-        if (loading) return;
-
+        loadingRef.current = true;
         setLoading(true);
         try {
             const options = {
                 category: selectedCategory !== "All" ? selectedCategory : undefined,
                 docType: selectedDocType !== "All" ? selectedDocType : undefined,
+                tag: selectedTag || undefined,
             };
 
             const newDocs = await fetchDocuments(currentSkip, LIMIT, options);
@@ -53,8 +47,9 @@ export default function DocumentsPage() {
             console.error('Error loading documents:', error);
         } finally {
             setLoading(false);
+            loadingRef.current = false;
         }
-    };
+    }, [selectedCategory, selectedDocType, selectedTag]);
 
     const loadMoreDocuments = useCallback(() => {
         if (!loading && hasMore) {
@@ -90,25 +85,34 @@ export default function DocumentsPage() {
         }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
     };
 
-    const handleFilterChange = useCallback(() => {
+    // 필터 변경 시 문서 목록 초기화 및 재로드
+    useEffect(() => {
         setDocuments([]);
         setSkip(0);
         setHasMore(true);
         loadDocuments(0);
+
         // Update stats when filter changes
         fetchStats({
-            category: selectedCategory,
-            docType: selectedDocType
+            category: selectedCategory !== "All" ? selectedCategory : undefined,
+            docType: selectedDocType !== "All" ? selectedDocType : undefined
         }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
-    }, [selectedCategory, selectedDocType]);
-
-    useEffect(() => {
-        handleFilterChange();
-    }, [selectedCategory, selectedDocType]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedCategory, selectedDocType, selectedTag]);
 
     const handleResetFilters = () => {
         setSelectedCategory("All");
         setSelectedDocType("All");
+        setSelectedTag("");
+    };
+
+    const handleTagClick = (tag: string) => {
+        if (selectedTag === tag) {
+            // 이미 선택된 태그를 다시 클릭하면 필터 해제
+            setSelectedTag("");
+        } else {
+            setSelectedTag(tag);
+        }
     };
 
     const handleRowDoubleClick = (docId: number) => {
@@ -139,6 +143,11 @@ export default function DocumentsPage() {
                 onDocTypeChange={setSelectedDocType}
                 onReset={handleResetFilters}
             />
+
+            {/* Top Tags List */}
+            <div className="rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm p-6">
+                <TopTagsList onTagClick={handleTagClick} selectedTag={selectedTag} />
+            </div>
 
             {/* Desktop Table View - Hidden on Mobile */}
             {/* Removed overflow-hidden to allow tooltips to popup properly */}

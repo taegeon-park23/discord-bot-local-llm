@@ -7,16 +7,46 @@ import os
 import aiofiles
 import asyncio
 from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 from src.database.engine import get_db, engine
 from src.database.models import Document, Base
 from src.web_api.schemas import DocumentResponse, ContentUpdate, DashboardStats, SearchResultItem
 from sqlalchemy import func
 from datetime import timedelta, datetime
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
+# 스케줄러 초기화
+scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 시작 시 스케줄러 실행
+    from src.services.tag_analytics import TagAnalyticsService
+    
+    # 태그 분석 작업을 6시간마다 실행
+    scheduler.add_job(
+        TagAnalyticsService.run_analytics,
+        trigger=IntervalTrigger(hours=6),
+        id="tag_analytics_job",
+        name="Tag Analytics Batch Job",
+        replace_existing=True
+    )
+    
+    scheduler.start()
+    logger.info("✅ Scheduler started. Tag analytics will run every 6 hours.")
+    
+    # 앱 시작 시 1회 실행 (백그라운드)
+    asyncio.create_task(TagAnalyticsService.run_analytics())
+    logger.info("🚀 Initial tag analytics job triggered.")
+    
     yield
+    
+    # 종료 시 스케줄러 정리
+    scheduler.shutdown()
     await engine.dispose()
 
 app = FastAPI(title="Knowledge Bot Admin API", lifespan=lifespan)
@@ -101,10 +131,11 @@ async def get_documents(
     doc_type: Optional[str] = None,
     upload_status: Optional[str] = None,
     category: Optional[str] = None,  # Category filter (Topic name from tag_mapping.yaml)
+    tag: Optional[str] = None,  # Single tag filter
     db: AsyncSession = Depends(get_db)
 ):
     """
-    문서 목록 조회 API with category-based filtering.
+    문서 목록 조회 API with category-based and tag-based filtering.
     
     Args:
         skip: 페이지네이션 오프셋
@@ -112,6 +143,7 @@ async def get_documents(
         doc_type: 문서 타입 필터 (SUMMARY, DEEP_DIVE, WEEKLY_REPORT, OTHER)
         upload_status: 업로드 상태 필터 (PENDING, SUCCESS, FAILED)
         category: Category 필터 (예: "Development", "AI & ML")
+        tag: 특정 태그 필터 (예: "python", "ai")
     """
     from src.services.db_service import DBService
     from src.services.tag_manager import TagManager
@@ -122,7 +154,8 @@ async def get_documents(
         limit=limit,
         doc_type=doc_type,
         upload_status=upload_status,
-        category=category
+        category=category,
+        tag=tag
     )
     
     # Category 계산 및 주입
@@ -253,3 +286,21 @@ async def search_documents(
     results = await service.search_similar(q, limit, offset, threshold)
     
     return [SearchResultItem(**item) for item in results]
+
+@app.get("/api/tags/top")
+async def get_top_tags(
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    상위 태그 목록 조회 (count 내림차순)
+    
+    Args:
+        limit: 반환할 태그 수 (default: 100)
+        offset: 페이지네이션 오프셋 (default: 0)
+    """
+    from src.services.tag_analytics import TagAnalyticsService
+    
+    tags = await TagAnalyticsService.get_top_tags(db, limit, offset)
+    return tags

@@ -161,7 +161,8 @@ class DBService:
     def _build_filter_query(
         doc_type: str = None,
         upload_status: str = None,
-        category: str = None
+        category: str = None,
+        tag: str = None
     ):
         """Builds the base usage query with filters applied."""
         query = select(Document)
@@ -197,6 +198,23 @@ class DBService:
                 else:
                     # 유효하지 않은 카테고리인 경우 결과 없음
                     query = query.where(sa.false())
+        
+        # tag 필터 (단일 태그 검색, 대소문자만 무시, 정확한 매칭)
+        if tag:
+            # 태그를 소문자로 정규화
+            normalized_tag = tag.lower().strip()
+            # JSONB 배열의 각 요소를 소문자로 변환하여 정확히 비교 (LIKE가 아닌 == 사용)
+            # 예: "tech"는 "Tech", "TECH"와 매칭되지만 "technology"와는 매칭되지 않음
+            query = query.where(
+                sa.exists(
+                    select(1).select_from(
+                        func.jsonb_array_elements_text(Document.tags).alias('tag_element')
+                    ).where(
+                        func.lower(sa.text('tag_element')) == normalized_tag  # 정확한 매칭 (==)
+                    )
+                )
+            )
+        
         return query
 
     @staticmethod
@@ -204,10 +222,11 @@ class DBService:
         db: AsyncSession,
         doc_type: str = None,
         upload_status: str = None,
-        category: str = None
+        category: str = None,
+        tag: str = None
     ) -> int:
         """Counts documents matching the filters."""
-        base_query = DBService._build_filter_query(doc_type, upload_status, category)
+        base_query = DBService._build_filter_query(doc_type, upload_status, category, tag)
         # Wrapping in subquery is safer for complex wheres, but func.count() on selection is standard
         # However, selecting the entity then counting might be less efficient than count(*).
         # Let's use select(func.count()).select_from(base_query.subquery()) or modify base query to select count.
@@ -225,12 +244,13 @@ class DBService:
         limit: int = 50,
         doc_type: str = None,
         upload_status: str = None,
-        category: str = None
+        category: str = None,
+        tag: str = None
     ):
         """
         문서 목록을 필터링 조건에 따라 조회.
         """
-        query = DBService._build_filter_query(doc_type, upload_status, category)
+        query = DBService._build_filter_query(doc_type, upload_status, category, tag)
         query = query.order_by(Document.created_at.desc(), Document.id.desc())
         
         # Pagination
