@@ -158,29 +158,13 @@ class DBService:
                 await db.commit()
 
     @staticmethod
-    async def get_documents(
-        db: AsyncSession,
-        skip: int = 0,
-        limit: int = 50,
+    def _build_filter_query(
         doc_type: str = None,
         upload_status: str = None,
         category: str = None
     ):
-        """
-        문서 목록을 필터링 조건에 따라 조회.
-        
-        Args:
-            db: AsyncSession 인스턴스
-            skip: 건너뛸 레코드 수 (pagination)
-            limit: 최대 반환 개수
-            doc_type: 문서 타입 필터 (SUMMARY, DEEP_DIVE 등)
-            upload_status: 업로드 상태 필터 (PENDING, SUCCESS, FAILED)
-            category: Tag Mapping의 Topic 이름 (예: "Development")
-        
-        Returns:
-            필터링된 Document 객체 리스트
-        """
-        query = select(Document).order_by(Document.created_at.desc(), Document.id.desc())
+        """Builds the base usage query with filters applied."""
+        query = select(Document)
         
         # doc_type 필터
         if doc_type:
@@ -207,13 +191,47 @@ class DBService:
                 target_tags = tag_manager.get_tags_for_category(category)
                 if target_tags:
                     # PostgreSQL JSONB 배열이 target_tags 중 하나라도 포함하는지 확인
-                    # ?| 연산자: JSONB 배열이 주어진 배열의 요소 중 하나라도 포함
                     query = query.where(
                         func.jsonb_exists_any(Document.tags, cast(target_tags, ARRAY(sa.String)))
                     )
                 else:
                     # 유효하지 않은 카테고리인 경우 결과 없음
                     query = query.where(sa.false())
+        return query
+
+    @staticmethod
+    async def count_documents(
+        db: AsyncSession,
+        doc_type: str = None,
+        upload_status: str = None,
+        category: str = None
+    ) -> int:
+        """Counts documents matching the filters."""
+        base_query = DBService._build_filter_query(doc_type, upload_status, category)
+        # Wrapping in subquery is safer for complex wheres, but func.count() on selection is standard
+        # However, selecting the entity then counting might be less efficient than count(*).
+        # Let's use select(func.count()).select_from(base_query.subquery()) or modify base query to select count.
+        
+        # Resetting selection to count
+        # SQLAlchemy 1.4+ style
+        count_query = select(func.count()).select_from(base_query.subquery())
+        result = await db.execute(count_query)
+        return result.scalar() or 0
+
+    @staticmethod
+    async def get_documents(
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 50,
+        doc_type: str = None,
+        upload_status: str = None,
+        category: str = None
+    ):
+        """
+        문서 목록을 필터링 조건에 따라 조회.
+        """
+        query = DBService._build_filter_query(doc_type, upload_status, category)
+        query = query.order_by(Document.created_at.desc(), Document.id.desc())
         
         # Pagination
         result = await db.execute(query.offset(skip).limit(limit))

@@ -6,7 +6,10 @@ import { Document, UploadStatus } from '@/lib/types';
 import Link from 'next/link';
 import DocumentFilters from '@/components/DocumentFilters';
 
+import { useRouter } from 'next/navigation';
+
 export default function DocumentsPage() {
+    const router = useRouter(); // Initialize router
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(false);
     const [totalDocs, setTotalDocs] = useState(0);
@@ -19,7 +22,10 @@ export default function DocumentsPage() {
 
     useEffect(() => {
         // Fetch stats for total count
-        fetchStats().then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
+        fetchStats({
+            category: selectedCategory,
+            docType: selectedDocType
+        }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
 
         // Load initial documents
         loadDocuments(0);
@@ -78,6 +84,10 @@ export default function DocumentsPage() {
         setSkip(0);
         setHasMore(true);
         loadDocuments(0);
+        fetchStats({
+            category: selectedCategory,
+            docType: selectedDocType
+        }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
     };
 
     const handleFilterChange = useCallback(() => {
@@ -85,6 +95,11 @@ export default function DocumentsPage() {
         setSkip(0);
         setHasMore(true);
         loadDocuments(0);
+        // Update stats when filter changes
+        fetchStats({
+            category: selectedCategory,
+            docType: selectedDocType
+        }).then(stats => setTotalDocs(stats.total_documents)).catch(console.error);
     }, [selectedCategory, selectedDocType]);
 
     useEffect(() => {
@@ -94,6 +109,10 @@ export default function DocumentsPage() {
     const handleResetFilters = () => {
         setSelectedCategory("All");
         setSelectedDocType("All");
+    };
+
+    const handleRowDoubleClick = (docId: number) => {
+        router.push(`/documents/${docId}`);
     };
 
     return (
@@ -122,27 +141,35 @@ export default function DocumentsPage() {
             />
 
             {/* Desktop Table View - Hidden on Mobile */}
-            <div className="hidden md:block overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
+            {/* Removed overflow-hidden to allow tooltips to popup properly */}
+            <div className="hidden md:block rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
                 <table className="w-full text-left text-sm text-gray-400">
                     <thead className="bg-white/5 text-gray-200">
                         <tr>
-                            <th className="px-6 py-4 font-medium">Title</th>
+                            <th className="px-6 py-4 font-medium first:rounded-tl-xl">Title</th>
                             <th className="px-6 py-4 font-medium">Category</th>
                             <th className="px-6 py-4 font-medium">Tags</th>
                             <th className="px-6 py-4 font-medium">Type</th>
                             <th className="px-6 py-4 font-medium">Status</th>
                             <th className="px-6 py-4 font-medium">Date</th>
-                            <th className="px-6 py-4 font-medium text-right">Actions</th>
+                            <th className="px-6 py-4 font-medium text-right first:rounded-tr-xl">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
                         {documents.map((doc) => (
-                            <tr key={`doc-pc-${doc.id}-${doc.title}`} className="hover:bg-white/5 transition-colors">
+                            <tr
+                                key={`doc-pc-${doc.id}-${doc.title}`}
+                                className="hover:bg-white/5 transition-colors cursor-pointer"
+                                onDoubleClick={() => handleRowDoubleClick(doc.id)}
+                            >
                                 <td className="px-6 py-4 font-medium text-white max-w-sm truncate">{doc.title}</td>
                                 <td className="px-6 py-4">
                                     {doc.category && (
                                         <button
-                                            onClick={() => setSelectedCategory(doc.category!)}
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent row double click
+                                                setSelectedCategory(doc.category!);
+                                            }}
                                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer ${doc.category === "Uncategorized"
                                                 ? 'bg-gray-500/10 text-gray-400 border border-gray-500/20 hover:bg-gray-500/20'
                                                 : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
@@ -153,14 +180,32 @@ export default function DocumentsPage() {
                                     )}
                                 </td>
                                 <td className="px-6 py-4">
-                                    <div className="flex flex-wrap gap-1">
+                                    <div className="relative group flex flex-wrap gap-1">
+                                        {/* Show only first 3 tags normally */}
                                         {doc.tags && doc.tags.slice(0, 3).map((tag, idx) => (
                                             <span key={`${doc.id}-tag-${idx}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                                                 {tag}
                                             </span>
                                         ))}
+
+                                        {/* If more than 3, show count badge */}
                                         {doc.tags && doc.tags.length > 3 && (
-                                            <span className="text-xs text-gray-500">+{doc.tags.length - 3}</span>
+                                            <span className="inline-flex items-center px-1.5 py-0.5 text-xs text-gray-500 cursor-help border border-transparent hover:border-gray-500/30 rounded-full">
+                                                +{doc.tags.length - 3}
+                                            </span>
+                                        )}
+
+                                        {/* Floating Popup on Hover - Shows ALL tags */}
+                                        {doc.tags && (
+                                            <div className="absolute left-0 top-full mt-2 w-64 p-3 bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none group-hover:pointer-events-auto">
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {doc.tags.map((tag, idx) => (
+                                                        <span key={`popup-${doc.id}-${tag}-${idx}`} className="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                                            {tag}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 </td>

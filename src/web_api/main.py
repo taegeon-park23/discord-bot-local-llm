@@ -37,19 +37,28 @@ app.add_middleware(
 )
 
 @app.get("/api/stats", response_model=DashboardStats)
-async def get_stats(db: AsyncSession = Depends(get_db)):
-    # Total
-    total_query = select(func.count(Document.id))
-    total_res = await db.execute(total_query)
-    total_docs = total_res.scalar() or 0
+async def get_stats(
+    category: Optional[str] = None,
+    doc_type: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    from src.services.db_service import DBService
+    
+    # 1. Total (Filtered)
+    total_docs = await DBService.count_documents(db, doc_type=doc_type, category=category)
 
-    # Failed
+    # 2. Failed (Global - keeping context of system health)
+    # If we want filtered failed count:
+    # failed_count = await DBService.count_documents(db, doc_type=doc_type, category=category, upload_status='FAILED')
+    # For now, let's keep failed/recent as GLOBAL stats to show system health, 
+    # but Total reflects the current view.
+    
     from src.database.models import UploadStatus
     failed_query = select(func.count(Document.id)).where(Document.gdrive_upload_status == UploadStatus.FAILED)
     failed_res = await db.execute(failed_query)
     failed_count = failed_res.scalar() or 0
 
-    # Recent (7 days)
+    # 3. Recent (Global)
     seven_days_ago = datetime.now() - timedelta(days=7)
     recent_query = select(func.count(Document.id)).where(Document.created_at >= seven_days_ago)
     recent_res = await db.execute(recent_query)

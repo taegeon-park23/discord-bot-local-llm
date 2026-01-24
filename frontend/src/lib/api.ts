@@ -2,8 +2,12 @@ import { Document, DashboardStats, SearchResultItem } from "./types";
 
 const API_Base = "";
 
-export async function fetchStats(): Promise<DashboardStats> {
-    const res = await fetch(`${API_Base}/api/stats`);
+export async function fetchStats(filters?: { category?: string; docType?: string }): Promise<DashboardStats> {
+    const params = new URLSearchParams();
+    if (filters?.category && filters.category !== "All") params.append("category", filters.category);
+    if (filters?.docType && filters.docType !== "All") params.append("doc_type", filters.docType);
+
+    const res = await fetch(`${API_Base}/api/stats?${params}`);
     if (!res.ok) throw new Error("Failed to fetch stats");
     return res.json();
 }
