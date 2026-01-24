@@ -80,3 +80,20 @@ export async function searchDocuments(
     if (!res.ok) throw new Error("Failed to search documents");
     return res.json();
 }
+
+export async function generateTagsForDocument(id: number): Promise<{ success: boolean; tags: string[]; message: string }> {
+    const res = await fetch(`${API_Base}/api/documents/${id}/generate-tags`, {
+        method: "POST",
+    });
+    if (!res.ok) throw new Error("Failed to generate tags");
+    return res.json();
+}
+
+export async function deleteDocument(id: number): Promise<{ success: boolean; message: string; deleted_file: string | null }> {
+    const res = await fetch(`${API_Base}/api/documents/${id}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete document");
+    return res.json();
+}
+

@@ -107,6 +107,24 @@ class LLMQueue:
         if not deep_analysis:
             raise Exception("AI 심층 분석 결과가 비어있습니다.")
 
+        # --- NEW: Generate Tags ---
+        logger.info("[_process_deep_dive] ==================== TAG GENERATION START ====================")
+        logger.info(f"[_process_deep_dive] Content length for tagging: {len(deep_analysis)} characters")
+        
+        tags = []
+        try:
+            logger.info("[_process_deep_dive] 태그 생성 시작...")
+            tags = await asyncio.to_thread(self.bot.ai.generate_tags, deep_analysis)
+            logger.info(f"[_process_deep_dive] ✅ 태그 생성 완료: {tags}")
+            logger.info(f"[_process_deep_dive] 태그 개수: {len(tags)}")
+        except Exception as e:
+            logger.error(f"[_process_deep_dive] ❌ 태그 생성 실패 (계속 진행): {e}", exc_info=True)
+            # Continue with empty tags - do not fail the entire Deep Dive
+        
+        logger.info(f"[_process_deep_dive] DB 등록 시 전달할 태그: {tags}")
+        logger.info("[_process_deep_dive] ==================== TAG GENERATION END ====================")
+        # -------------------------
+
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
         
         # Title Extraction with DB Fallback
@@ -155,6 +173,10 @@ class LLMQueue:
         filename = f"{date_str}_[DeepDive]_{safe_title}.md"
         filepath = os.path.join(save_path, filename)
         
+        # Normalize path for cross-platform consistency (Windows -> Docker)
+        normalized_path = filepath.replace("\\", "/")
+        logger.info(f"[_process_deep_dive] Normalized path: {normalized_path}")
+        
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"{deep_analysis}\n\n---\n**Source:** {payload['url']}")
         logger.info(f"[_process_deep_dive] 파일 저장됨: {filename}")
@@ -166,10 +188,12 @@ class LLMQueue:
         try:
             await DBService.register_document(
                 title=title,
-                local_path=filepath,
+                local_path=normalized_path,  # Use normalized path
                 doc_type=DocType.DEEP_DIVE,
-                source_url=payload['url']
+                source_url=payload['url'],
+                raw_tags=tags  # NEW: Pass generated tags
             )
+            logger.info(f"[_process_deep_dive] Document registered with normalized path: {normalized_path}")
         except Exception as e:
             logger.error(f"DB Registration failed (Deep Dive): {e}")
         # ----------------------------
@@ -181,11 +205,14 @@ class LLMQueue:
         # --- DB Status Update ---
         try:
             status = UploadStatus.SUCCESS if uploaded else UploadStatus.FAILED
-            logger.info(f"[_process_deep_dive] Updating DB status to {status.value} for {filepath}")
-            await DBService.update_upload_status(filepath, status)
-            logger.info(f"[_process_deep_dive] DB status update successful")
+            logger.info(f"[_process_deep_dive] Updating DB status to {status.value} for normalized path: {normalized_path}")
+            result = await DBService.update_upload_status(normalized_path, status)
+            if result:
+                logger.info(f"[_process_deep_dive] ✅ DB status update successful")
+            else:
+                logger.warning(f"[_process_deep_dive] ⚠️ DB status update returned False - document may not exist in DB")
         except Exception as e:
-            logger.error(f"[_process_deep_dive] DB Status Update failed: {e}", exc_info=True)
+            logger.error(f"[_process_deep_dive] ❌ DB Status Update failed: {e}", exc_info=True)
         # ------------------------
 
         # 결과 채널로 전송 (서머리 채널)

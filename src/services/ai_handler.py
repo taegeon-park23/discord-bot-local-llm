@@ -136,6 +136,74 @@ Structure:
         """Standard chat interface with failover support"""
         return self._call_llm_with_failover(messages, temperature)
 
+    def generate_tags(self, text):
+        """
+        Generates relevant tags from the provided text.
+        Returns a list of normalized tag strings.
+        """
+        if not text or len(text) < 50: 
+            return []
+        
+        # Load valid topics for guidance
+        import yaml
+        topics_hint = ""
+        try:
+            with open("src/data/tag_mapping.yaml", "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                valid_topics = [item['topic'] for item in data.get('mappings', [])]
+                topics_hint = ", ".join(valid_topics)
+        except:
+            topics_hint = "Development, AI & ML, Design, Trends & News"
+        
+        system_prompt = f"""
+You are a technical content analyzer.
+Extract 5-10 relevant tags/keywords from the provided text.
+Prefer tags related to these topics: [{topics_hint}]
+Output MUST be ONLY a valid JSON array of strings.
+Example: ["python", "asyncio", "discord", "bot"]
+"""
+        messages = [
+            {"role": "user", "content": f"{system_prompt}\n\n--- Text ---\n{text[:8000]}"}
+        ]
+        
+        content = self._call_llm_with_failover(messages, temperature=0.1)
+        
+        if not content:
+            logger.warning("[AI] Tag generation failed - LLM returned empty")
+            return []
+        
+        try:
+            # Parse JSON
+            clean_json = content.replace("```json", "").replace("```", "").strip()
+            start = clean_json.find('[')
+            end = clean_json.rfind(']') + 1
+            if start != -1 and end != 0:
+                clean_json = clean_json[start:end]
+            
+            raw_tags = json.loads(clean_json)
+            
+            if not isinstance(raw_tags, list):
+                logger.warning(f"[AI] Tag generation returned non-list: {type(raw_tags)}")
+                return []
+            
+            # Normalize tags using TagManager
+            from src.services.tag_manager import TagManager
+            tag_manager = TagManager()
+            normalized_tags = tag_manager.normalize_tags([str(t) for t in raw_tags])
+            
+            # Force all tags to lowercase to prevent case sensitivity issues
+            lowercase_tags = [tag.lower() for tag in normalized_tags]
+            
+            logger.info(f"[AI] Generated {len(lowercase_tags)} tags: {lowercase_tags}")
+            return lowercase_tags
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"[AI] Tag JSON parsing failed: {e}, content: {content[:200]}")
+            return []
+        except Exception as e:
+            logger.error(f"[AI] Tag generation error: {e}")
+            return []
+
     def generate_embedding(self, text):
         """Generates embedding for given text using Gemini Text Embedding 004"""
         if not text: return None

@@ -304,3 +304,175 @@ async def get_top_tags(
     
     tags = await TagAnalyticsService.get_top_tags(db, limit, offset)
     return tags
+
+@app.post("/api/documents/{doc_id}/generate-tags")
+async def generate_tags_for_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    문서 내용을 기반으로 태그를 생성하고 DB에 업데이트합니다.
+    
+    Process:
+        1. Fetch document from DB
+        2. Read content from local file
+        3. Call AI to generate tags
+        4. Update document.tags in DB
+        
+    Returns:
+        {
+            "success": true,
+            "tags": ["tag1", "tag2", ...],
+            "message": "Tags generated successfully"
+        }
+    """
+    logger.info(f"[API] Tag generation requested for document ID: {doc_id}")
+    
+    # 1. Fetch document
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # 2. Read content from local file
+    if not os.path.exists(doc.local_file_path):
+        raise HTTPException(status_code=404, detail="Local file not found. Cannot generate tags.")
+    
+    try:
+        async with aiofiles.open(doc.local_file_path, mode='r', encoding='utf-8') as f:
+            content = await f.read()
+    except Exception as e:
+        logger.error(f"[API] Failed to read file {doc.local_file_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
+    
+    # 3. Generate tags using AI
+    from src.services.ai_handler import AIAgent
+    
+    try:
+        ai_agent = AIAgent()
+        tags = await asyncio.to_thread(ai_agent.generate_tags, content)
+        logger.info(f"[API] Generated {len(tags)} tags for doc {doc_id}: {tags}")
+        
+        if not tags:
+            logger.warning(f"[API] No tags generated for doc {doc_id}")
+            return {
+                "success": False,
+                "tags": [],
+                "message": "No tags could be generated from the content"
+            }
+        
+        # 4. Update DB
+        doc.tags = tags
+        await db.commit()
+        await db.refresh(doc)
+        
+        logger.info(f"[API] Successfully updated tags for doc {doc_id}")
+        return {
+            "success": True,
+            "tags": tags,
+            "message": f"Generated {len(tags)} tags successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"[API] Tag generation failed for doc {doc_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Tag generation failed: {str(e)}")
+
+@app.delete("/api/documents/{doc_id}")
+async def delete_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    문서를 완전히 삭제합니다 (DB + 로컬 파일 + 벡터 임베딩).
+    
+    Deletion Process:
+        1. Fetch document from DB
+        2. Decrement tag statistics counts
+        3. Delete vector embeddings (DocumentChunks)
+        4. Delete local file (if exists)
+        5. Delete DB record
+        
+    Returns:
+        {
+            "success": true,
+            "message": "Document deleted successfully",
+            "deleted_file": "/path/to/file.md"
+        }
+    """
+    logger.info(f"[API] Delete requested for document ID: {doc_id}")
+    
+    # 1. Fetch document
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    local_file_path = doc.local_file_path
+    doc_tags = doc.tags if doc.tags else []
+    logger.info(f"[API] Document has {len(doc_tags)} tags: {doc_tags}")
+    
+    try:
+        # 2. Decrement tag statistics counts
+        if doc_tags:
+            from src.database.models import TagStatistics
+            from sqlalchemy import update, delete
+            
+            for tag in doc_tags:
+                # Normalize tag to lowercase for matching (TagStatistics stores lowercase)
+                normalized_tag = tag.lower()
+                
+                # First, check current count
+                select_stmt = select(TagStatistics.count).where(TagStatistics.tag == normalized_tag)
+                count_result = await db.execute(select_stmt)
+                current_count = count_result.scalar_one_or_none()
+                
+                if current_count is None:
+                    logger.warning(f"[API] Tag '{normalized_tag}' not found in TagStatistics table")
+                    continue
+                
+                if current_count <= 1:
+                    # Delete the tag entry if count will become 0
+                    delete_stmt = delete(TagStatistics).where(TagStatistics.tag == normalized_tag)
+                    await db.execute(delete_stmt)
+                    logger.info(f"[API] Deleted tag '{normalized_tag}' from TagStatistics (count was {current_count})")
+                else:
+                    # Decrement the count
+                    update_stmt = (
+                        update(TagStatistics)
+                        .where(TagStatistics.tag == normalized_tag)
+                        .values(count=TagStatistics.count - 1)
+                    )
+                    await db.execute(update_stmt)
+                    logger.debug(f"[API] Decremented count for tag '{normalized_tag}' ({current_count} -> {current_count - 1})")
+            
+            logger.info(f"[API] Updated tag statistics for {len(doc_tags)} tags")
+        
+        # 3. Delete vector embeddings
+        from src.services.vector_service import VectorService
+        vector_service = VectorService(db)
+        await vector_service.clear_chunks(doc_id)
+        logger.info(f"[API] Deleted vector chunks for doc {doc_id}")
+        
+        # 4. Delete local file (if exists)
+        file_deleted = False
+        if os.path.exists(local_file_path):
+            try:
+                os.remove(local_file_path)
+                file_deleted = True
+                logger.info(f"[API] Deleted local file: {local_file_path}")
+            except Exception as e:
+                logger.warning(f"[API] Failed to delete local file {local_file_path}: {e}")
+        else:
+            logger.warning(f"[API] Local file not found: {local_file_path}")
+        
+        # 5. Delete DB record
+        await db.delete(doc)
+        await db.commit()
+        logger.info(f"[API] Deleted DB record for doc {doc_id}")
+        
+        return {
+            "success": True,
+            "message": "Document deleted successfully",
+            "deleted_file": local_file_path if file_deleted else None
+        }
+        
+    except Exception as e:
+        logger.error(f"[API] Failed to delete document {doc_id}: {e}", exc_info=True)
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete operation failed: {str(e)}")
+
+

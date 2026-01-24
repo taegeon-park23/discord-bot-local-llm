@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { fetchDocuments, fetchStats } from '@/lib/api';
+import { fetchDocuments, fetchStats, generateTagsForDocument, deleteDocument } from '@/lib/api';
 import { Document, UploadStatus } from '@/lib/types';
 import Link from 'next/link';
 import DocumentFilters from '@/components/DocumentFilters';
@@ -22,6 +22,7 @@ export default function DocumentsPage() {
     const observerTarget = useRef<HTMLDivElement>(null);
     const loadingRef = useRef(false);
     const LIMIT = 20;
+    const [generatingTagDocId, setGeneratingTagDocId] = useState<number | null>(null);
 
     const loadDocuments = useCallback(async (currentSkip: number) => {
         if (loadingRef.current) return;
@@ -119,6 +120,51 @@ export default function DocumentsPage() {
         router.push(`/documents/${docId}`);
     };
 
+    const handleGenerateTags = async (docId: number, event?: React.MouseEvent) => {
+        if (event) event.stopPropagation();
+
+        if (!confirm('이 문서의 태그를 생성하시겠습니까?')) return;
+
+        setGeneratingTagDocId(docId);
+
+        try {
+            const result = await generateTagsForDocument(docId);
+            if (result.success) {
+                // Update local state
+                setDocuments(prev => prev.map(doc =>
+                    doc.id === docId ? { ...doc, tags: result.tags } : doc
+                ));
+                alert(`✅ ${result.tags.length}개의 태그가 생성되었습니다!`);
+            } else {
+                alert('⚠️ ' + result.message);
+            }
+        } catch (error) {
+            console.error('Tag generation failed:', error);
+            alert('❌ 태그 생성 중 오류가 발생했습니다.');
+        } finally {
+            setGeneratingTagDocId(null);
+        }
+    };
+
+    const handleDeleteDocument = async (docId: number, event?: React.MouseEvent) => {
+        if (event) event.stopPropagation();
+
+        if (!confirm('⚠️ 이 문서를 삭제하시겠습니까?\n\nDB 레코드, 로컬 파일, 벡터 임베딩이 모두 삭제됩니다.')) return;
+
+        try {
+            const result = await deleteDocument(docId);
+            if (result.success) {
+                // Remove from local state
+                setDocuments(prev => prev.filter(doc => doc.id !== docId));
+                setTotalDocs(prev => prev - 1);
+                alert('✅ 문서가 삭제되었습니다.');
+            }
+        } catch (error) {
+            console.error('Delete failed:', error);
+            alert('❌ 문서 삭제 중 오류가 발생했습니다.');
+        }
+    };
+
     return (
         <div className="space-y-8">
             {/* Header - Mobile Responsive */}
@@ -189,23 +235,23 @@ export default function DocumentsPage() {
                                     )}
                                 </td>
                                 <td className="px-6 py-4">
-                                    <div className="relative group flex flex-wrap gap-1">
-                                        {/* Show only first 3 tags normally */}
-                                        {doc.tags && doc.tags.slice(0, 3).map((tag, idx) => (
-                                            <span key={`${doc.id}-tag-${idx}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                                                {tag}
-                                            </span>
-                                        ))}
+                                    {doc.tags && doc.tags.length > 0 ? (
+                                        <div className="relative group flex flex-wrap gap-1">
+                                            {/* Show only first 3 tags normally */}
+                                            {doc.tags.slice(0, 3).map((tag, idx) => (
+                                                <span key={`${doc.id}-tag-${idx}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                                    {tag}
+                                                </span>
+                                            ))}
 
-                                        {/* If more than 3, show count badge */}
-                                        {doc.tags && doc.tags.length > 3 && (
-                                            <span className="inline-flex items-center px-1.5 py-0.5 text-xs text-gray-500 cursor-help border border-transparent hover:border-gray-500/30 rounded-full">
-                                                +{doc.tags.length - 3}
-                                            </span>
-                                        )}
+                                            {/* If more than 3, show count badge */}
+                                            {doc.tags.length > 3 && (
+                                                <span className="inline-flex items-center px-1.5 py-0.5 text-xs text-gray-500 cursor-help border border-transparent hover:border-gray-500/30 rounded-full">
+                                                    +{doc.tags.length - 3}
+                                                </span>
+                                            )}
 
-                                        {/* Floating Popup on Hover - Shows ALL tags */}
-                                        {doc.tags && (
+                                            {/* Floating Popup on Hover - Shows ALL tags */}
                                             <div className="absolute left-0 top-full mt-2 w-64 p-3 bg-gray-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none group-hover:pointer-events-auto">
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {doc.tags.map((tag, idx) => (
@@ -215,8 +261,31 @@ export default function DocumentsPage() {
                                                     ))}
                                                 </div>
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={(e) => handleGenerateTags(doc.id, e)}
+                                            disabled={generatingTagDocId === doc.id}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {generatingTagDocId === doc.id ? (
+                                                <>
+                                                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    생성 중...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                    </svg>
+                                                    태그 생성
+                                                </>
+                                            )}
+                                        </button>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4">
                                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium 
@@ -234,9 +303,20 @@ export default function DocumentsPage() {
                                 </td>
                                 <td className="px-6 py-4">{new Date(doc.created_at).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-right">
-                                    <Link href={`/documents/${doc.id}`} className="text-blue-400 hover:text-blue-300">
-                                        View
-                                    </Link>
+                                    <div className="flex items-center justify-end gap-3">
+                                        <Link href={`/documents/${doc.id}`} className="text-blue-400 hover:text-blue-300">
+                                            View
+                                        </Link>
+                                        <button
+                                            onClick={(e) => handleDeleteDocument(doc.id, e)}
+                                            className="text-red-400 hover:text-red-300 transition-colors"
+                                            title="Delete document"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -269,14 +349,39 @@ export default function DocumentsPage() {
                             {doc.title}
                         </h3>
 
-                        {/* Tags Row */}
-                        {doc.tags && doc.tags.length > 0 && (
+                        {/* Tags Row */}\r
+                        {doc.tags && doc.tags.length > 0 ? (
                             <div className="flex flex-wrap gap-2 mb-3">
                                 {doc.tags.map((tag, idx) => (
                                     <span key={`${doc.id}-mobile-tag-${idx}`} className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                                         {tag}
                                     </span>
                                 ))}
+                            </div>
+                        ) : (
+                            <div className="mb-3">
+                                <button
+                                    onClick={(e) => handleGenerateTags(doc.id, e)}
+                                    disabled={generatingTagDocId === doc.id}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {generatingTagDocId === doc.id ? (
+                                        <>
+                                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            생성 중...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                            </svg>
+                                            태그 생성
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         )}
 
@@ -295,16 +400,27 @@ export default function DocumentsPage() {
                         </div>
 
                         {/* Date and Action Row */}
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                             <span className="text-xs text-gray-400">
                                 {new Date(doc.created_at).toLocaleDateString()}
                             </span>
-                            <Link
-                                href={`/documents/${doc.id}`}
-                                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-                            >
-                                View
-                            </Link>
+                            <div className="flex items-center gap-2">
+                                <Link
+                                    href={`/documents/${doc.id}`}
+                                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+                                >
+                                    View
+                                </Link>
+                                <button
+                                    onClick={() => handleDeleteDocument(doc.id)}
+                                    className="p-2 rounded-lg bg-red-600/10 text-red-400 hover:bg-red-600/20 transition-colors"
+                                    title="Delete document"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ))}
