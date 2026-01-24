@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Enum as SAEnum
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 import enum
 
@@ -24,6 +25,9 @@ class Document(Base):
     source_url = Column(Text, nullable=True)
     
     doc_type = Column(SAEnum(DocType), default=DocType.SUMMARY, nullable=False)
+    
+    # Tags for category-based filtering
+    tags = Column(JSONB, default=list, server_default='[]', nullable=False)
     
     # Local File Info - Source of Truth
     local_file_path = Column(Text, unique=True, nullable=False)

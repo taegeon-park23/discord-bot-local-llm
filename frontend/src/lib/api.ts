@@ -8,8 +8,25 @@ export async function fetchStats(): Promise<DashboardStats> {
     return res.json();
 }
 
-export async function fetchDocuments(skip = 0, limit = 50): Promise<Document[]> {
-    const res = await fetch(`${API_Base}/api/documents?skip=${skip}&limit=${limit}`, {
+export async function fetchDocuments(
+    skip = 0,
+    limit = 50,
+    options?: {
+        category?: string;
+        docType?: string;
+        uploadStatus?: string;
+    }
+): Promise<Document[]> {
+    const params = new URLSearchParams({
+        skip: skip.toString(),
+        limit: limit.toString(),
+    });
+
+    if (options?.category) params.append('category', options.category);
+    if (options?.docType) params.append('doc_type', options.docType);
+    if (options?.uploadStatus) params.append('upload_status', options.uploadStatus);
+
+    const res = await fetch(`${API_Base}/api/documents?${params}`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
     });

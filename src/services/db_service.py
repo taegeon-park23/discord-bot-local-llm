@@ -1,6 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy import cast, func
+from sqlalchemy.dialects.postgresql import ARRAY
+import sqlalchemy as sa
 from src.database.models import Document, DocType, UploadStatus
 from src.database.engine import AsyncSessionLocal
 from src.logger import get_logger
@@ -37,7 +40,8 @@ class DBService:
         title: str,
         local_path: str,
         doc_type: DocType,
-        source_url: str = None
+        source_url: str = None,
+        raw_tags: list = None  # NEW: Optional raw tags from LLM or manual input
     ) -> Document:
         async with AsyncSessionLocal() as db:
             # Check if exists
@@ -47,21 +51,94 @@ class DBService:
             if existing:
                 existing.title = title
                 existing.updated_at = datetime.datetime.now()
-                # document already registered
+                
+                # Update tags if provided
+                if raw_tags:
+                    from src.services.tag_manager import TagManager
+                    tm = TagManager()
+                    existing.tags = tm.normalize_tags(raw_tags)
+                
                 await db.commit()
+                await db.refresh(existing)
                 return existing
+            
+            # Infer tags for new document
+            inferred_tags = []
+            if raw_tags:
+                # LLM이 제공한 tags 사용
+                from src.services.tag_manager import TagManager
+                tm = TagManager()
+                inferred_tags = tm.normalize_tags(raw_tags)
+            else:
+                # Tags가 없으면 경로와 제목에서 추론
+                inferred_tags = await DBService._infer_tags_for_new_document(local_path, title)
             
             new_doc = Document(
                 title=title,
                 local_file_path=local_path,
                 doc_type=doc_type,
                 source_url=source_url,
+                tags=inferred_tags,  # Inferred tags 추가
                 gdrive_upload_status=UploadStatus.PENDING
             )
             db.add(new_doc)
             await db.commit()
             await db.refresh(new_doc)
             return new_doc
+
+    @staticmethod
+    async def _infer_tags_for_new_document(local_path: str, title: str) -> list:
+        """
+        신규 문서의 tags를 경로와 제목으로부터 추론
+        """
+        from pathlib import Path
+        from src.services.tag_manager import TagManager
+        import re
+        
+        tm = TagManager()
+        tags = set()
+        
+        # 1. 경로에서 폴더명 추출
+        FOLDER_TO_TOPIC = {
+            "AI & ML": "AI & ML",
+            "AI Agent": "AI & ML",
+            "Design": "Design",
+            "Development": "Development",
+            "API": "Development",
+            "Custom Hooks": "Development",
+            "B-tree": "Development",
+            "DevOps & Cloud": "DevOps & Cloud",
+            "Data Science": "Data Science",
+            "Security": "Security",
+        }
+        
+        try:
+            path_obj = Path(local_path)
+            if len(path_obj.parts) > 3 and path_obj.parts[1] == "app" and path_obj.parts[2] == "data":
+                folder_name = path_obj.parts[3]
+                topic = FOLDER_TO_TOPIC.get(folder_name)
+                if topic:
+                    topic_tags = tm.get_tags_for_category(topic)
+                    if topic_tags:
+                        tags.update(topic_tags[:2])  # 대표 태그 2개만
+        except:
+            pass
+        
+        # 2. 제목에서 키워드 추론
+        title_lower = title.lower()
+        for group in tm.mappings:
+            for synonym in group.get('synonyms', [])[:10]:  # 상위 10개만
+                pattern = r'\b' + re.escape(synonym.lower()) + r'\b'
+                if re.search(pattern, title_lower):
+                    tags.add(synonym.lower())
+                    break  # 하나만 매칭되면 다음 그룹으로
+        
+        # 3. 정규화
+        if tags:
+            return tm.normalize_tags(list(tags))
+        else:
+            return []  # 추론 실패 시 빈 리스트
+
 
     @staticmethod
     @async_retry_on_lock(max_retries=5, base_delay=0.1)
@@ -79,3 +156,65 @@ class DBService:
                     doc.gdrive_file_id = gdrive_id
                 doc.last_synced_at = datetime.datetime.now()
                 await db.commit()
+
+    @staticmethod
+    async def get_documents(
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 50,
+        doc_type: str = None,
+        upload_status: str = None,
+        category: str = None
+    ):
+        """
+        문서 목록을 필터링 조건에 따라 조회.
+        
+        Args:
+            db: AsyncSession 인스턴스
+            skip: 건너뛸 레코드 수 (pagination)
+            limit: 최대 반환 개수
+            doc_type: 문서 타입 필터 (SUMMARY, DEEP_DIVE 등)
+            upload_status: 업로드 상태 필터 (PENDING, SUCCESS, FAILED)
+            category: Tag Mapping의 Topic 이름 (예: "Development")
+        
+        Returns:
+            필터링된 Document 객체 리스트
+        """
+        query = select(Document).order_by(Document.created_at.desc(), Document.id.desc())
+        
+        # doc_type 필터
+        if doc_type:
+            query = query.where(Document.doc_type == doc_type)
+        
+        # upload_status 필터
+        if upload_status:
+            query = query.where(Document.gdrive_upload_status == upload_status)
+        
+        # category 필터 (Tags 기반)
+        if category:
+            from src.services.tag_manager import TagManager
+            tag_manager = TagManager()
+            
+            if category.lower() == "uncategorized":
+                # tags가 없거나 빈 배열인 문서 검색
+                query = query.where(
+                    sa.or_(
+                        Document.tags == None,
+                        func.jsonb_array_length(Document.tags) == 0
+                    )
+                )
+            else:
+                target_tags = tag_manager.get_tags_for_category(category)
+                if target_tags:
+                    # PostgreSQL JSONB 배열이 target_tags 중 하나라도 포함하는지 확인
+                    # ?| 연산자: JSONB 배열이 주어진 배열의 요소 중 하나라도 포함
+                    query = query.where(
+                        func.jsonb_exists_any(Document.tags, cast(target_tags, ARRAY(sa.String)))
+                    )
+                else:
+                    # 유효하지 않은 카테고리인 경우 결과 없음
+                    query = query.where(sa.false())
+        
+        # Pagination
+        result = await db.execute(query.offset(skip).limit(limit))
+        return result.scalars().all()

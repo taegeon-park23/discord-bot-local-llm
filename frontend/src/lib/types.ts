@@ -22,6 +22,8 @@ export interface Document {
     created_at: string;
     updated_at: string;
     last_synced_at?: string;
+    tags: string[];
+    category?: string;
 }
 
 export interface DashboardStats {

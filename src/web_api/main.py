@@ -67,25 +67,51 @@ async def get_documents(
     limit: int = 50, 
     doc_type: Optional[str] = None,
     upload_status: Optional[str] = None,
+    category: Optional[str] = None,  # Category filter (Topic name from tag_mapping.yaml)
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Document).order_by(Document.created_at.desc(), Document.id.desc())
+    """
+    문서 목록 조회 API with category-based filtering.
     
-    if doc_type:
-        query = query.where(Document.doc_type == doc_type)
-    if upload_status:
-        query = query.where(Document.gdrive_upload_status == upload_status)
-        
-    result = await db.execute(query.offset(skip).limit(limit))
-    documents = result.scalars().all()
+    Args:
+        skip: 페이지네이션 오프셋
+        limit: 최대 결과 수
+        doc_type: 문서 타입 필터 (SUMMARY, DEEP_DIVE, WEEKLY_REPORT, OTHER)
+        upload_status: 업로드 상태 필터 (PENDING, SUCCESS, FAILED)
+        category: Category 필터 (예: "Development", "AI & ML")
+    """
+    from src.services.db_service import DBService
+    from src.services.tag_manager import TagManager
+    
+    documents = await DBService.get_documents(
+        db=db,
+        skip=skip,
+        limit=limit,
+        doc_type=doc_type,
+        upload_status=upload_status,
+        category=category
+    )
+    
+    # Category 계산 및 주입
+    tm = TagManager()
+    for doc in documents:
+        doc.category = tm.get_category_from_tags(doc.tags)
+    
     return documents
 
 @app.get("/api/documents/{doc_id}", response_model=DocumentResponse)
 async def get_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    from src.services.tag_manager import TagManager
+    
     result = await db.execute(select(Document).where(Document.id == doc_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Category 계산
+    tm = TagManager()
+    doc.category = tm.get_category_from_tags(doc.tags)
+    
     return doc
 
 @app.post("/api/documents/{doc_id}/retry")

@@ -29,6 +29,8 @@ class DocumentResponse(DocumentBase):
     gdrive_upload_status: UploadStatus
     gdrive_file_id: Optional[str] = None
     last_synced_at: Optional[datetime] = None
+    tags: list[str] = []
+    category: Optional[str] = None
 
     class Config:
         from_attributes = True

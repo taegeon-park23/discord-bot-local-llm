@@ -112,3 +112,81 @@ class TagManager:
             
         # Fallback: strict 'Uncategorized' to avoid random folder creation like '(Visual'
         return "Uncategorized"
+
+    def get_tags_for_category(self, category: str) -> list[str]:
+        """
+        Category(Topic) 이름으로 해당하는 모든 Synonym Tags를 반환.
+        
+        Args:
+            category: Topic 이름 (예: "Development", "AI & ML")
+        
+        Returns:
+            해당 Category의 synonyms 리스트. 존재하지 않으면 빈 리스트.
+        
+        Examples:
+            >>> tm = TagManager()
+            >>> tm.get_tags_for_category("Development")
+            ['python', 'python3', 'javascript', 'js', ...]
+            >>> tm.get_tags_for_category("InvalidCategory")
+            []
+        """
+        if not category:
+            return []
+        
+        # Case-insensitive matching
+        category_lower = category.lower()
+        
+        for group in self.mappings:
+            topic = group.get('topic', '')
+            if topic.lower() == category_lower:
+                tags = group.get('synonyms', [])
+                if topic not in tags:
+                    tags = [topic] + tags
+                return tags
+        
+        # Category not found
+        return []
+
+    def get_category_from_tags(self, tags: List[str]) -> str:
+        """
+        Tags 리스트로부터 가장 적합한 Category(Topic)를 반환.
+        
+        Args:
+            tags: 문서의 tags 배열
+        
+        Returns:
+            Category 이름 (예: "AI & ML", "Development")
+            매칭 없으면 "Uncategorized"
+        
+        Examples:
+            >>> tm = TagManager()
+            >>> tm.get_category_from_tags(["python", "javascript"])
+            "Development"
+            >>> tm.get_category_from_tags(["ai", "llm"])
+            "AI & ML"
+            >>> tm.get_category_from_tags([])
+            "Uncategorized"
+        """
+        if not tags:
+            return "Uncategorized"
+        
+        # 대소문자 무시하고 비교
+        tag_set = set(t.lower() for t in tags)
+        best_topic = "Uncategorized"
+        max_overlap = 0
+        
+        for group in self.mappings:
+            topic = group.get('topic')
+            synonyms = set(s.lower() for s in group.get('synonyms', []))
+            
+            # Topic 이름 자체도 매칭 (migration이 Topic 이름을 태그로 저장할 수 있음)
+            if topic and topic.lower() in tag_set:
+                return topic
+            
+            # 교집합 계산
+            overlap = len(tag_set & synonyms)
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_topic = topic
+        
+        return best_topic if max_overlap > 0 else "Uncategorized"
