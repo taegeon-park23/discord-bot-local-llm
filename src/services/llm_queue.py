@@ -108,8 +108,39 @@ class LLMQueue:
             raise Exception("AI 심층 분석 결과가 비어있습니다.")
 
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        # Title Extraction with DB Fallback
         title_match = re.search(r'^#\s+(.+)', deep_analysis)
-        title = title_match.group(1).strip() if title_match else "DeepDive"
+        title = None
+        
+        if title_match:
+            title = title_match.group(1).strip()
+            logger.info(f"[_process_deep_dive] Title extracted from LLM: {title}")
+        else:
+            # Fallback: Try to find existing document by URL (Summary might have registered it)
+            logger.warning("[_process_deep_dive] Title extraction failed, checking DB for existing document...")
+            from src.services.db_service import DBService
+            from sqlalchemy.future import select
+            from src.database.engine import AsyncSessionLocal
+            from src.database.models import Document
+            
+            try:
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(
+                        select(Document).where(Document.source_url == payload['url'])
+                    )
+                    existing_doc = result.scalar_one_or_none()
+                    if existing_doc and existing_doc.title:
+                        title = f"DeepDive - {existing_doc.title}"
+                        logger.info(f"[_process_deep_dive] Title fetched from DB: {title}")
+            except Exception as e:
+                logger.warning(f"[_process_deep_dive] DB title lookup failed: {e}")
+        
+        # Final Fallback
+        if not title:
+            title = "DeepDive"
+            logger.warning("[_process_deep_dive] Using generic title 'DeepDive'")
+        
         safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
         
         # Determine Topic for Folder (Analyze title/content implicitly or just use default)
@@ -150,9 +181,11 @@ class LLMQueue:
         # --- DB Status Update ---
         try:
             status = UploadStatus.SUCCESS if uploaded else UploadStatus.FAILED
+            logger.info(f"[_process_deep_dive] Updating DB status to {status.value} for {filepath}")
             await DBService.update_upload_status(filepath, status)
+            logger.info(f"[_process_deep_dive] DB status update successful")
         except Exception as e:
-            logger.error(f"DB Status Update failed (Deep Dive): {e}")
+            logger.error(f"[_process_deep_dive] DB Status Update failed: {e}", exc_info=True)
         # ------------------------
 
         # 결과 채널로 전송 (서머리 채널)

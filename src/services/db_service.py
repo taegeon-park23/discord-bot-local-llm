@@ -1,11 +1,38 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.exc import OperationalError
 from src.database.models import Document, DocType, UploadStatus
 from src.database.engine import AsyncSessionLocal
+from src.logger import get_logger
 import datetime
+import asyncio
+from functools import wraps
+
+logger = get_logger(__name__)
+
+def async_retry_on_lock(max_retries=5, base_delay=0.1):
+    """SQLite 락 발생 시 재시도하는 데코레이터"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"[DB] Database locked, retry {attempt+1}/{max_retries} after {delay}s")
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(f"[DB] Operation failed after {max_retries} retries: {e}")
+                        raise
+            return None
+        return wrapper
+    return decorator
 
 class DBService:
     @staticmethod
+    @async_retry_on_lock(max_retries=5, base_delay=0.1)
     async def register_document(
         title: str,
         local_path: str,
@@ -37,6 +64,7 @@ class DBService:
             return new_doc
 
     @staticmethod
+    @async_retry_on_lock(max_retries=5, base_delay=0.1)
     async def update_upload_status(
         local_path: str,
         status: UploadStatus,
