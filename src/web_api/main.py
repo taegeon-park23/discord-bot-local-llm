@@ -61,6 +61,30 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         recent_docs_count=recent_count
     )
 
+@app.post("/api/admin/auto-categorize")
+async def auto_categorize_tags():
+    """
+    Triggers the Batch Tag Optimization process:
+    1. Identify unmapped tags.
+    2. Ask LLM for mappings.
+    3. Update YAML.
+    4. Reload TagManager.
+    """
+    from src.services.tag_optimizer import TagOptimizationService
+    from src.services.tag_manager import TagManager
+    
+    try:
+        service = TagOptimizationService()
+        result = await service.optimize()
+        
+        # Reload configuration in-memory
+        TagManager().reload()
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/documents", response_model=List[DocumentResponse])
 async def get_documents(
     skip: int = 0, 

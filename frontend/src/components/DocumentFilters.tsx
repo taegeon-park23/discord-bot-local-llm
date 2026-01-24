@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 
 interface DocumentFiltersProps {
     selectedCategory: string;
@@ -31,6 +32,31 @@ export default function DocumentFilters({
     const docTypes = ["All", "SUMMARY", "DEEP_DIVE", "WEEKLY_REPORT", "OTHER"];
 
     const hasActiveFilters = selectedCategory !== "All" || selectedDocType !== "All";
+
+    const [isOptimizing, setIsOptimizing] = React.useState(false);
+
+    const handleAutoCategorize = async () => {
+        if (!confirm("자동 카테고리화를 시작하시겠습니까?\n(LLM이 미분류 태그를 분석하여 매핑을 업데이트합니다)")) return;
+
+        setIsOptimizing(true);
+        try {
+            const res = await fetch('http://localhost:8000/api/admin/auto-categorize', {
+                method: 'POST'
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                alert(`완료되었습니다!\n업데이트: ${data.updated || 0}개\n신규 토픽: ${data.new_topics || 0}개`);
+                window.location.reload();
+            } else {
+                alert(`오류 발생: ${data.detail || 'Unknown error'}`);
+            }
+        } catch (e) {
+            alert(`네트워크 오류: ${e}`);
+        } finally {
+            setIsOptimizing(false);
+        }
+    };
 
     return (
         <div className="flex flex-col md:flex-row gap-4 p-4 rounded-xl border border-white/10 bg-white/5 backdrop-blur-sm">
@@ -72,14 +98,22 @@ export default function DocumentFilters({
                 </select>
             </div>
 
-            {/* Reset Button */}
-            <div className="flex items-end">
+            {/* Buttons */}
+            <div className="flex items-end gap-2">
+                <button
+                    onClick={handleAutoCategorize}
+                    disabled={isOptimizing}
+                    className="w-full md:w-auto px-4 py-2 rounded-lg bg-green-600/80 text-white font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                >
+                    {isOptimizing ? "분석 중..." : "🪄 태그 정리"}
+                </button>
+
                 <button
                     onClick={onReset}
                     disabled={!hasActiveFilters}
                     className="w-full md:w-auto px-6 py-2 rounded-lg bg-gray-600 text-white font-medium hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                    Reset Filters
+                    Reset
                 </button>
             </div>
         </div>

@@ -281,7 +281,8 @@ class KnowledgeBot(discord.Client):
                 title=data.get('title'),
                 local_path=filepath,
                 doc_type=DocType.SUMMARY,
-                source_url=url
+                source_url=url,
+                raw_tags=data.get('tags')
             )
         except Exception as e:
             logger.error(f"DB Registration failed: {e}")
